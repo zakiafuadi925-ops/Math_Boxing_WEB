@@ -1,0 +1,35 @@
+# Abaikan SupabaseConfig di folder mana pun
+**/SupabaseConfig.asset
+
+# Abaikan file json sensitif/konfigurasi lokal
+**/config.json
+
+#[Library & Temporary Files]
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+
+#[VS Code / Visual Studio]
+.vscode/
+.vs/
+*.csproj
+*.sln
+*.unityproj
+
+#[OS Generated Files]
+.DS_Store
+Thumbs.db
+
+# Unity Logs & Build Temp
+/[Ll]ogs/
+.utmp/
+
+#[Environment Variables & Local Secrets]
+.env
+.env*.local
+!.env.example
