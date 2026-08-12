@@ -1,7 +1,21 @@
-import React, { useState } from 'react';
-import { LogIn, LogOut, ShieldCheck, Trophy, Sparkles, User, X, Check, Flame } from 'lucide-react';
-import { PlayerProfile, signInWithGoogle, signOutPlayer } from '../lib/firebase';
-import { audio } from '../utils/audio';
+import React, { useState } from "react";
+import {
+  LogIn,
+  LogOut,
+  ShieldCheck,
+  Trophy,
+  Sparkles,
+  User,
+  X,
+  Check,
+  Flame,
+} from "lucide-react";
+import {
+  PlayerProfile,
+  signInWithGoogle,
+  signOutPlayer,
+} from "../lib/supabase";
+import { audio } from "../utils/audio";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -35,14 +49,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
         onUserLogin(profile);
       }
     } catch (err: any) {
-      console.error('Login error:', err);
-      if (err.code === 'auth/popup-closed-by-user') {
-        setErrorMessage('Jendela login ditutup sebelum selesai.');
-      } else if (err.code === 'auth/popup-blocked') {
-        setErrorMessage('Pop-up terblokir oleh browser. Harap izinkan pop-up.');
-      } else {
-        setErrorMessage(err.message || 'Gagal masuk dengan Google. Coba lagi.');
-      }
+      console.error("Login error:", err);
+      setErrorMessage(err.message || "Gagal masuk dengan Google. Coba lagi.");
     } finally {
       setLoading(false);
     }
@@ -54,7 +62,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       await signOutPlayer();
       onUserLogout();
     } catch (err: any) {
-      console.error('Logout error:', err);
+      console.error("Logout error:", err);
     }
   };
 
@@ -91,10 +99,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
             {/* Profile Card */}
             <div className="p-4 bg-slate-950/90 border border-slate-800 rounded-2xl flex items-center gap-4 text-left">
-              {currentUser.photoURL ? (
+              {currentUser.avatar_url ? (
                 <img
-                  src={currentUser.photoURL}
-                  alt={currentUser.displayName}
+                  src={currentUser.avatar_url}
+                  alt={currentUser.name || "User Avatar"}
                   className="w-14 h-14 rounded-full border-2 border-amber-400 object-cover shadow-md shrink-0"
                 />
               ) : (
@@ -105,13 +113,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({
 
               <div className="flex-1 min-w-0">
                 <h3 className="font-bold text-base text-white truncate">
-                  {currentUser.displayName}
+                  {currentUser.name || "Player"}
                 </h3>
-                <p className="text-xs text-slate-400 truncate">{currentUser.email}</p>
+                <p className="text-xs text-slate-400 truncate">
+                  {currentUser.email}
+                </p>
                 <div className="mt-1.5 flex items-center gap-2">
                   <span className="text-[11px] font-arcade font-bold text-amber-400 bg-amber-950/60 border border-amber-500/40 px-2 py-0.5 rounded-lg flex items-center gap-1">
                     <Trophy className="w-3.5 h-3.5" />
-                    {currentUser.lifetimeScore} PTS
+                    {currentUser.high_score || 0} PTS
                   </span>
                 </div>
               </div>
@@ -122,7 +132,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 <Check className="w-4 h-4" /> Server Mengenali Akun Anda
               </div>
               <p className="text-slate-400 leading-snug">
-                Poin & skin Anda otomatis tersimpan di cloud database sehingga dapat diakses di device mana pun!
+                Poin & skin Anda otomatis tersimpan di cloud database sehingga
+                dapat diakses di device mana pun!
               </p>
             </div>
 
@@ -158,7 +169,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({
               onClick={handleGoogleSignIn}
               className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 font-bold rounded-2xl shadow-lg border border-slate-200 flex items-center justify-center gap-3 transition active:scale-95 disabled:opacity-50"
             >
-              {/* Google SVG Logo */}
               <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
                 <path
                   fill="#4285F4"
@@ -178,7 +188,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({
                 />
               </svg>
               <span className="text-sm font-bold">
-                {loading ? 'Menghubungkan...' : 'Masuk dengan Google'}
+                {loading ? "Menghubungkan..." : "Masuk dengan Google"}
               </span>
             </button>
 

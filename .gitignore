@@ -31,5 +31,16 @@ Thumbs.db
 
 #[Environment Variables & Local Secrets]
 .env
+.env.local
 .env*.local
 !.env.example
+
+
+# Firebase Sensitive Config
+firebase-applet-config.json
+firebase-blueprint.json
+
+node_modules
+dist
+dist-ssr
+*.local
