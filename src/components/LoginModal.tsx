@@ -43,15 +43,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({
       setErrorMessage(null);
       audio.playClick();
 
-      const profile = await signInWithGoogle();
-      if (profile) {
-        audio.playBell();
-        onUserLogin(profile);
-      }
+      // Jalankan OAuth Google (akan mengarahkan halaman ke browser login)
+      await signInWithGoogle();
     } catch (err: any) {
       console.error("Login error:", err);
       setErrorMessage(err.message || "Gagal masuk dengan Google. Coba lagi.");
-    } finally {
       setLoading(false);
     }
   };
