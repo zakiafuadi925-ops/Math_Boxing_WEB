@@ -21,18 +21,39 @@ export interface PlayerProfile {
 }
 
 // Helper Login Google
-export const signInWithGoogle = async () => {
-  const { data, error } = await supabase.auth.signInWithOAuth({
+export const signInWithGoogle = async (): Promise<PlayerProfile | null> => {
+  const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
       redirectTo: window.location.origin,
     },
   });
+
   if (error) throw error;
-  return data;
+
+  // Mengingat OAuth Supabase akan melakukan redirect,
+  // profile akan diambil secara otomatis saat halaman dimuat ulang.
+  return null;
 };
 
 // Helper Logout
+export const getCurrentUserProfile =
+  async (): Promise<PlayerProfile | null> => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      name: user.user_metadata?.full_name || user.email?.split("@")[0],
+      email: user.email,
+      avatar_url: user.user_metadata?.avatar_url,
+      high_score: 0,
+    };
+  };
+
 export const signOutPlayer = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
