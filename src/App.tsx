@@ -179,8 +179,11 @@ export default function App() {
   }, [category]);
 
   // Start Match logic
+  // Start Match logic
   const startMatch = useCallback(
     (roomData?: { roomId?: string }) => {
+      console.log("--> startMatch dipanggil dengan roomData:", roomData);
+
       audio.playBell();
       setTimeRemaining(60);
       setTotalAnswered(0);
@@ -221,53 +224,67 @@ export default function App() {
         currentAction: "idle",
       }));
 
-      // Inisialisasi Multiplayer Realtime Broadcast jika mode Online
+      // LANGKAH PENTING: Ubah stage KE "in_game" TERLEBIH DAHULU agar modal langsung tertutup!
+      setStage("in_game");
+
+      // Inisialisasi Multiplayer Realtime Broadcast dengan jeda mikro agar channel lama bersih
       if (isMultiplayer && roomData?.roomId) {
         setActiveRoomId(roomData.roomId);
-        const channel = supabase.channel(roomData.roomId);
 
-        // Dengarkan serangan/pukulan lawan
-        channel
-          .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
-            audio.playPunchHit();
-            setLastHitBy("p2");
-            triggerScreenShake("light");
+        // Bersihkan channel sebelumnya jika ada
+        if (gameChannelRef.current) {
+          supabase.removeChannel(gameChannelRef.current);
+        }
 
-            setP2((prev) => ({
-              ...prev,
-              score: prev.score + payload.earnedScore,
-              currentAction: payload.punchType,
-            }));
+        setTimeout(() => {
+          console.log(
+            "--> Inisialisasi Game Realtime Channel:",
+            roomData.roomId,
+          );
+          const channel = supabase.channel(`game_${roomData.roomId}`);
 
-            setP1((prev) => ({
-              ...prev,
-              health: Math.max(0, prev.health - 8),
-              currentAction: "hit",
-            }));
+          // Dengarkan serangan/pukulan lawan
+          channel
+            .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
+              audio.playPunchHit();
+              setLastHitBy("p2");
+              triggerScreenShake("light");
 
-            setTimeout(() => {
-              setP1((p) => ({ ...p, currentAction: "idle" }));
-              setP2((p) => ({ ...p, currentAction: "idle" }));
-            }, 400);
-          })
-          .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
-            audio.playEmoteSound(payload.action);
-            setP2((prev) => ({ ...prev, currentAction: payload.action }));
-            setTimeout(() => {
-              setP2((p) =>
-                p.currentAction === payload.action
-                  ? { ...p, currentAction: "idle" }
-                  : p,
-              );
-            }, 2000);
-          })
-          .subscribe();
+              setP2((prev) => ({
+                ...prev,
+                score: prev.score + payload.earnedScore,
+                currentAction: payload.punchType,
+              }));
 
-        gameChannelRef.current = channel;
+              setP1((prev) => ({
+                ...prev,
+                health: Math.max(0, prev.health - 8),
+                currentAction: "hit",
+              }));
+
+              setTimeout(() => {
+                setP1((p) => ({ ...p, currentAction: "idle" }));
+                setP2((p) => ({ ...p, currentAction: "idle" }));
+              }, 400);
+            })
+            .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
+              audio.playEmoteSound(payload.action);
+              setP2((prev) => ({ ...prev, currentAction: payload.action }));
+              setTimeout(() => {
+                setP2((p) =>
+                  p.currentAction === payload.action
+                    ? { ...p, currentAction: "idle" }
+                    : p,
+                );
+              }, 2000);
+            })
+            .subscribe();
+
+          gameChannelRef.current = channel;
+        }, 100);
       }
 
       nextQuestion();
-      setStage("in_game");
     },
     [
       category,
