@@ -13,6 +13,7 @@ import { audio } from "./utils/audio";
 import { BOXER_SKINS } from "./utils/skins";
 import { recordMatchToChallenges } from "./utils/dailyChallenges";
 import { supabase, PlayerProfile, getCurrentUserProfile } from "./lib/supabase";
+import { RealtimeChannel } from "@supabase/supabase-js";
 
 import { MainMenu } from "./components/MainMenu";
 import { MatchmakingModal } from "./components/MatchmakingModal";
@@ -23,15 +24,7 @@ import { GameOverModal } from "./components/GameOverModal";
 import { ComboTracker, getComboMultiplier } from "./components/ComboTracker";
 import { EmoteBar } from "./components/EmoteBar";
 
-import {
-  Timer,
-  LogOut,
-  Swords,
-  Flame,
-  Volume2,
-  VolumeX,
-  Zap,
-} from "lucide-react";
+import { Timer, LogOut } from "lucide-react";
 
 export default function App() {
   // Navigation & Game State
@@ -42,9 +35,12 @@ export default function App() {
     "normal",
   );
   const [roomCode, setRoomCode] = useState<string>("");
+  const [activeRoomId, setActiveRoomId] = useState<string>("");
   const [playerName, setPlayerName] = useState<string>("Player 1");
-  const [soundOn, setSoundOn] = useState<boolean>(true);
   const [currentUser, setCurrentUser] = useState<PlayerProfile | null>(null);
+
+  // Realtime Channel Ref
+  const gameChannelRef = useRef<RealtimeChannel | null>(null);
 
   // Boxer Skins & Lifetime Progression
   const [lifetimeScore, setLifetimeScore] = useState<number>(() => {
@@ -63,7 +59,6 @@ export default function App() {
 
   // Subscribe to Supabase Auth state & fetch remote profile
   useEffect(() => {
-    // 1. Ambil profil user saat awal dimuat
     getCurrentUserProfile().then((profile) => {
       if (profile) {
         setCurrentUser(profile);
@@ -78,7 +73,6 @@ export default function App() {
       }
     });
 
-    // 2. Pasang listener Auth Supabase
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (session?.user) {
@@ -147,11 +141,10 @@ export default function App() {
   const [lastBonusPoints, setLastBonusPoints] = useState<number | null>(null);
   const [answerHistory, setAnswerHistory] = useState<AnswerHistoryPoint[]>([]);
 
-  // Kinetic UI Screen Shake state & timer ref
+  // Screen Shake
   const [shakeClass, setShakeClass] = useState<string>("");
   const shakeTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Trigger screen shake effect
   const triggerScreenShake = useCallback(
     (type: "light" | "heavy" | "combo") => {
       if (shakeTimerRef.current) clearTimeout(shakeTimerRef.current);
@@ -177,69 +170,116 @@ export default function App() {
     [],
   );
 
-  // Refs for AI loop & timer
   const aiIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const matchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Start new question
   const nextQuestion = useCallback(() => {
     const q = MathGenerator.generateQuestion(category);
     setCurrentQuestion(q);
   }, [category]);
 
   // Start Match logic
-  const startMatch = useCallback(() => {
-    audio.playBell();
-    setTimeRemaining(60);
-    setTotalAnswered(0);
-    setCorrectCount(0);
-    setWrongCount(0);
-    setHighestCombo(0);
-    setLastBonusPoints(null);
-    setLastHitBy(null);
-    setAnswerHistory([]);
+  const startMatch = useCallback(
+    (roomData?: { roomId?: string }) => {
+      audio.playBell();
+      setTimeRemaining(60);
+      setTotalAnswered(0);
+      setCorrectCount(0);
+      setWrongCount(0);
+      setHighestCombo(0);
+      setLastBonusPoints(null);
+      setLastHitBy(null);
+      setAnswerHistory([]);
 
-    const activeSkin =
-      BOXER_SKINS.find((s) => s.id === selectedSkinId) || BOXER_SKINS[0];
+      const activeSkin =
+        BOXER_SKINS.find((s) => s.id === selectedSkinId) || BOXER_SKINS[0];
 
-    setP1((prev) => ({
-      ...prev,
-      name: playerName || "Player 1",
-      score: 0,
-      health: 100,
-      avatarColor: activeSkin.trunksColor,
-      glovesColor: activeSkin.glovesColor,
-      combo: 0,
-      currentAction: "idle",
-    }));
+      setP1((prev) => ({
+        ...prev,
+        name: playerName || "Player 1",
+        score: 0,
+        health: 100,
+        avatarColor: activeSkin.trunksColor,
+        glovesColor: activeSkin.glovesColor,
+        combo: 0,
+        currentAction: "idle",
+      }));
 
-    const opponentSkinPool = BOXER_SKINS.filter((s) => s.id !== activeSkin.id);
-    const randomOpponentSkin =
-      opponentSkinPool[Math.floor(Math.random() * opponentSkinPool.length)] ||
-      BOXER_SKINS[1];
-    const opponentSkin =
-      mode === "practice" ? BOXER_SKINS[0] : randomOpponentSkin;
+      const isMultiplayer = mode === "quick_match" || mode === "private_room";
 
-    setP2((prev) => ({
-      ...prev,
-      name:
-        mode === "practice"
-          ? `Bot (${aiDifficulty.toUpperCase()})`
-          : "Player Online",
-      score: 0,
-      health: 100,
-      isAi: mode === "practice",
-      avatarColor: opponentSkin.trunksColor,
-      glovesColor: opponentSkin.glovesColor,
-      combo: 0,
-      currentAction: "idle",
-    }));
+      setP2((prev) => ({
+        ...prev,
+        name: isMultiplayer
+          ? "Player Online"
+          : `Bot (${aiDifficulty.toUpperCase()})`,
+        score: 0,
+        health: 100,
+        isAi: !isMultiplayer,
+        avatarColor: BOXER_SKINS[1].trunksColor,
+        glovesColor: BOXER_SKINS[1].glovesColor,
+        combo: 0,
+        currentAction: "idle",
+      }));
 
-    nextQuestion();
-    setStage("in_game");
-  }, [category, mode, aiDifficulty, playerName, nextQuestion, selectedSkinId]);
+      // Inisialisasi Multiplayer Realtime Broadcast jika mode Online
+      if (isMultiplayer && roomData?.roomId) {
+        setActiveRoomId(roomData.roomId);
+        const channel = supabase.channel(roomData.roomId);
 
-  // Handle Matchmaking Start
+        // Dengarkan serangan/pukulan lawan
+        channel
+          .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
+            audio.playPunchHit();
+            setLastHitBy("p2");
+            triggerScreenShake("light");
+
+            setP2((prev) => ({
+              ...prev,
+              score: prev.score + payload.earnedScore,
+              currentAction: payload.punchType,
+            }));
+
+            setP1((prev) => ({
+              ...prev,
+              health: Math.max(0, prev.health - 8),
+              currentAction: "hit",
+            }));
+
+            setTimeout(() => {
+              setP1((p) => ({ ...p, currentAction: "idle" }));
+              setP2((p) => ({ ...p, currentAction: "idle" }));
+            }, 400);
+          })
+          .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
+            audio.playEmoteSound(payload.action);
+            setP2((prev) => ({ ...prev, currentAction: payload.action }));
+            setTimeout(() => {
+              setP2((p) =>
+                p.currentAction === payload.action
+                  ? { ...p, currentAction: "idle" }
+                  : p,
+              );
+            }, 2000);
+          })
+          .subscribe();
+
+        gameChannelRef.current = channel;
+      }
+
+      nextQuestion();
+      setStage("in_game");
+    },
+    [
+      category,
+      mode,
+      aiDifficulty,
+      playerName,
+      nextQuestion,
+      selectedSkinId,
+      triggerScreenShake,
+    ],
+  );
+
   const handleStartGame = (
     selectedMode: GameMode,
     selectedCat: QuestionCategory,
@@ -281,9 +321,13 @@ export default function App() {
     };
   }, [stage]);
 
-  // Update Lifetime Score & Match History when match ends
+  // Update Lifetime Score & Match History
   useEffect(() => {
     if (stage === "game_over") {
+      if (gameChannelRef.current) {
+        supabase.removeChannel(gameChannelRef.current);
+      }
+
       if (p1.score > 0) {
         setLifetimeScore((prevTotal) => {
           const updated = prevTotal + p1.score;
@@ -292,7 +336,6 @@ export default function App() {
         });
       }
 
-      // Save match history record
       const matchResult: "win" | "loss" | "draw" =
         p1.score > p2.score ? "win" : p1.score < p2.score ? "loss" : "draw";
 
@@ -325,7 +368,6 @@ export default function App() {
         console.error("Failed to save match history:", e);
       }
 
-      // Record progress for Daily Challenges
       recordMatchToChallenges({
         result: matchResult,
         correctCount,
@@ -336,7 +378,7 @@ export default function App() {
     }
   }, [stage]);
 
-  // AI Opponent Loop Effect
+  // AI Loop
   useEffect(() => {
     if (stage !== "in_game" || !p2.isAi) return;
 
@@ -393,7 +435,7 @@ export default function App() {
     triggerScreenShake,
   ]);
 
-  // Handle Player 1 Answer Submission
+  // Submit Answer
   const handleAnswerSubmitted = (playerAnswer: number) => {
     if (stage !== "in_game" || isNumpadLocked || !currentQuestion) return;
 
@@ -443,6 +485,15 @@ export default function App() {
         punchTypes[Math.floor(Math.random() * punchTypes.length)];
 
       const newScore = p1.score + earnedScore;
+
+      // Broadcast Pukulan ke Lawan via Supabase Realtime
+      if (gameChannelRef.current) {
+        gameChannelRef.current.send({
+          type: "broadcast",
+          event: "PLAYER_ATTACK",
+          payload: { punchType: randomPunch, earnedScore },
+        });
+      }
 
       setP1((prev) => ({
         ...prev,
@@ -501,7 +552,7 @@ export default function App() {
     }
   };
 
-  // Trigger Victory / Taunt Emote
+  // Broadcast Emote
   const handleTriggerEmote = useCallback(
     (
       emoteAction:
@@ -513,6 +564,15 @@ export default function App() {
       audio.playEmoteSound(emoteAction);
       setP1((prev) => ({ ...prev, currentAction: emoteAction }));
       triggerScreenShake("light");
+
+      if (gameChannelRef.current) {
+        gameChannelRef.current.send({
+          type: "broadcast",
+          event: "PLAYER_EMOTE",
+          payload: { action: emoteAction },
+        });
+      }
+
       setTimeout(() => {
         setP1((prev) =>
           prev.currentAction === emoteAction
@@ -524,16 +584,17 @@ export default function App() {
     [triggerScreenShake],
   );
 
-  // Exit game to main menu
   const handleExitMatch = () => {
     if (matchTimerRef.current) clearInterval(matchTimerRef.current);
     if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
+    if (gameChannelRef.current) {
+      supabase.removeChannel(gameChannelRef.current);
+    }
     setStage("main_menu");
   };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col justify-between select-none relative overflow-x-hidden">
-      {/* 1. Main Menu Stage */}
       {stage === "main_menu" && (
         <MainMenu
           onStartGame={handleStartGame}
@@ -566,24 +627,20 @@ export default function App() {
         />
       )}
 
-      {/* 2. Matchmaking Modal Stage */}
       {stage === "matchmaking" && (
         <MatchmakingModal
           mode={mode}
           roomCode={roomCode}
           onCancel={() => setStage("main_menu")}
-          onMatchFound={startMatch}
+          onMatchFound={(roomData) => startMatch(roomData)}
         />
       )}
 
-      {/* 3. Active In-Game Ring Stage */}
       {stage === "in_game" && currentQuestion && (
         <div
           className={`w-full max-w-2xl mx-auto flex flex-col justify-between p-3 sm:p-4 min-h-screen gap-3 transition-transform ${shakeClass}`}
         >
-          {/* Top HUD Bar */}
           <div className="bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-3 flex items-center justify-between shadow-xl">
-            {/* P1 Score Box */}
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center font-arcade font-bold text-xs text-slate-950">
                 P1
@@ -598,7 +655,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Timer Clock */}
             <div className="flex flex-col items-center px-3 py-1 bg-slate-950 border border-slate-800 rounded-xl">
               <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1 uppercase">
                 <Timer className="w-3 h-3 text-amber-400" /> TIMER
@@ -614,7 +670,6 @@ export default function App() {
               </span>
             </div>
 
-            {/* P2 Score Box */}
             <div className="flex items-center gap-2 text-right">
               <div>
                 <span className="text-[10px] text-slate-400 uppercase font-bold block">
@@ -630,28 +685,18 @@ export default function App() {
             </div>
           </div>
 
-          {/* Combo Streak HUD Tracker */}
           <ComboTracker combo={p1.combo} lastBonusPoints={lastBonusPoints} />
-
-          {/* 2D Animated Boxing Ring Canvas */}
           <BoxerCanvas p1={p1} p2={p2} lastHitBy={lastHitBy} />
-
-          {/* Quick Victory & Taunt Emote Buttons */}
           <EmoteBar
             onTriggerEmote={handleTriggerEmote}
             currentAction={p1.currentAction}
           />
-
-          {/* Question Card Display */}
           <QuestionCard question={currentQuestion} />
-
-          {/* Numpad Calculator Input Controls */}
           <Numpad
             onSubmitAnswer={handleAnswerSubmitted}
             isLocked={isNumpadLocked}
           />
 
-          {/* Bottom Quit Match Bar */}
           <div className="flex items-center justify-between text-xs text-slate-500 px-2 py-1">
             <button
               onClick={handleExitMatch}
@@ -667,7 +712,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 4. Game Over Stage */}
       {stage === "game_over" && (
         <GameOverModal
           p1={p1}
@@ -677,7 +721,7 @@ export default function App() {
           wrongCount={wrongCount}
           highestCombo={highestCombo}
           answerHistory={answerHistory}
-          onRematch={startMatch}
+          onRematch={() => startMatch({ roomId: activeRoomId })}
           onExit={handleExitMatch}
         />
       )}

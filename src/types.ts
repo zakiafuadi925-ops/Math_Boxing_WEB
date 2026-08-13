@@ -1,11 +1,11 @@
-export type QuestionCategory = 
-  | 'arithmetic' 
-  | 'counting' 
-  | 'algebra' 
-  | 'roots' 
-  | 'physics' 
-  | 'geometry'
-  | 'all';
+export type QuestionCategory =
+  | "arithmetic"
+  | "counting"
+  | "algebra"
+  | "roots"
+  | "physics"
+  | "geometry"
+  | "all";
 
 export interface MathQuestion {
   id: string;
@@ -21,23 +21,23 @@ export interface MathQuestion {
   };
 }
 
-export type GameMode = 'practice' | 'quick_match' | 'private_room';
+export type GameMode = "practice" | "quick_match" | "private_room";
 
-export type GameStage = 'main_menu' | 'matchmaking' | 'in_game' | 'game_over';
+export type GameStage = "main_menu" | "matchmaking" | "in_game" | "game_over";
 
-export type ActionType = 
-  | 'idle' 
-  | 'jab' 
-  | 'cross' 
-  | 'hook' 
-  | 'uppercut' 
-  | 'hit' 
-  | 'knockdown' 
-  | 'block'
-  | 'taunt_crown'
-  | 'taunt_flex'
-  | 'taunt_dance'
-  | 'taunt_shuffle';
+export type ActionType =
+  | "idle"
+  | "jab"
+  | "cross"
+  | "hook"
+  | "uppercut"
+  | "hit"
+  | "knockdown"
+  | "block"
+  | "taunt_crown"
+  | "taunt_flex"
+  | "taunt_dance"
+  | "taunt_shuffle";
 
 export interface PlayerState {
   id: string;
@@ -60,13 +60,21 @@ export interface AnswerHistoryPoint {
   score: number;
 }
 
+// Buka src/types.ts atau tempat interface modal didefinisikan
+export interface MatchmakingModalProps {
+  mode: GameMode;
+  roomCode?: string;
+  onCancel: () => void;
+  onMatchFound: (roomData?: { roomId: string }) => void; // Tambahkan roomData
+}
+
 export interface MatchRecord {
   id: string;
   timestamp: number;
   opponentName: string;
   p1Score: number;
   p2Score: number;
-  result: 'win' | 'loss' | 'draw';
+  result: "win" | "loss" | "draw";
   category: QuestionCategory;
   mode: GameMode;
   accuracy?: number;
@@ -78,7 +86,7 @@ export interface MatchRecord {
 export interface MatchRoom {
   id: string;
   roomCode: string;
-  status: 'waiting' | 'playing' | 'finished';
+  status: "waiting" | "playing" | "finished";
   currentQuestion: MathQuestion;
   questionVersion: number;
   timeRemaining: number;

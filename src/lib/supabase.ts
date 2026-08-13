@@ -9,7 +9,14 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Inisialisasi Supabase Client dengan opsi Realtime yang benar
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
+});
 
 // Tipe Data Player Profile
 export interface PlayerProfile {
@@ -36,7 +43,7 @@ export const signInWithGoogle = async (): Promise<PlayerProfile | null> => {
   return null;
 };
 
-// Helper Logout
+// Helper untuk mengambil Profil User Aktif
 export const getCurrentUserProfile =
   async (): Promise<PlayerProfile | null> => {
     const {
@@ -54,6 +61,7 @@ export const getCurrentUserProfile =
     };
   };
 
+// Helper Logout
 export const signOutPlayer = async () => {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
