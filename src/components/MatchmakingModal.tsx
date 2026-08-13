@@ -24,7 +24,12 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   const [opponentName, setOpponentName] = useState("Opponent Player");
   const channelRef = useRef<RealtimeChannel | null>(null);
 
+  // Guard flag agar onMatchFound HANYA dipanggil 1 kali saja
+  const hasMatchedRef = useRef<boolean>(false);
+
   useEffect(() => {
+    hasMatchedRef.current = false;
+
     // Tentukan ID Room/Channel
     const targetRoomId =
       mode === "private_room" && roomCode
@@ -45,15 +50,18 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
     // 1. Dengarkan jika ada pemain lain yang bergabung (Presence Sync)
     channel
       .on("presence", { event: "sync" }, () => {
+        if (hasMatchedRef.current) return; // Mencegah pemicuan ganda
+
         const state = channel.presenceState();
         const players = Object.keys(state);
 
         // Jika ada 2 pemain atau lebih di room yang sama
         if (players.length >= 2) {
+          hasMatchedRef.current = true; // Kunci status match
           setMatchStatus("found");
           setOpponentName("Pemain Lain Terhubung!");
 
-          // Kirim sinyal start match setelah 1.5 detik
+          // Transisi langsung ke arena ring
           setTimeout(() => {
             onMatchFound({ roomId: targetRoomId });
           }, 1500);
@@ -87,7 +95,8 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
         supabase.removeChannel(channelRef.current);
       }
     };
-  }, [mode, roomCode, onMatchFound]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, roomCode]); // Keluarkan onMatchFound dari dependency agar channel tidak re-subscribe berulang
 
   const handleCancel = () => {
     if (channelRef.current) {
