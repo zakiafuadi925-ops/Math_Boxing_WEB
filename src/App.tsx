@@ -293,21 +293,52 @@ export default function App() {
         });
 
         // 3. Listen Event Broadcast
+        // 1. Kirim Data Profil Saat Terhubung ke Room
         gameChannel
+          .on("broadcast", { event: "PLAYER_JOINED" }, ({ payload }) => {
+            // Saat lawan masuk, perbarui nama lawan secara spesifik
+            setP2((prev) => ({ ...prev, name: payload.playerName }));
+
+            // Jika kita adalah Host, kirim balik nama kita dan soal pertama
+            if (isHost) {
+              gameChannel.send({
+                type: "broadcast",
+                event: "HOST_INIT_GAME",
+                payload: {
+                  hostName: playerName,
+                  initialQuestion: currentQuestion,
+                },
+              });
+            }
+          })
+          .on("broadcast", { event: "HOST_INIT_GAME" }, ({ payload }) => {
+            // Guest menerima nama Host dan soal yang sama
+            setP2((prev) => ({ ...prev, name: payload.hostName }));
+            if (payload.initialQuestion) {
+              setCurrentQuestion(payload.initialQuestion);
+            }
+          })
           .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
+            // Terima Aksi Pukulan & Soal Baru dari Lawan
             audio.playPunchHit();
             setLastHitBy("p2");
             triggerScreenShake("light");
 
+            // Set Soal Baru yang Dikirim oleh Lawan (Agar Soal Selalu Sama)
+            if (payload.nextQuestion) {
+              setCurrentQuestion(payload.nextQuestion);
+            }
+
+            // Update Skor & HP Spesifik Sesuai Data Payload Real
             setP2((prev) => ({
               ...prev,
-              score: prev.score + payload.earnedScore,
+              score: payload.totalScore,
               currentAction: payload.punchType,
             }));
 
             setP1((prev) => ({
               ...prev,
-              health: Math.max(0, prev.health - 8),
+              health: payload.opponentHealth,
               currentAction: "hit",
             }));
 
@@ -315,23 +346,17 @@ export default function App() {
               setP1((p) => ({ ...p, currentAction: "idle" }));
               setP2((p) => ({ ...p, currentAction: "idle" }));
             }, 400);
-          })
-          .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
-            audio.playEmoteSound(payload.action);
-            setP2((prev) => ({ ...prev, currentAction: payload.action }));
-            setTimeout(() => {
-              setP2((p) =>
-                p.currentAction === payload.action
-                  ? { ...p, currentAction: "idle" }
-                  : p,
-              );
-            }, 2000);
           });
 
         // 4. Subscribe dengan penanganan status WebSocket
         gameChannel.subscribe((status, err) => {
           if (status === "SUBSCRIBED") {
             console.log("✅ WebSocket Terhubung ke Ring Pertarungan!");
+            gameChannel.send({
+              type: "broadcast",
+              event: "PLAYER_JOINED",
+              payload: { playerName: playerName }, // Mengirimkan username Supabase / Google
+            });
           }
           if (status === "CHANNEL_ERROR") {
             console.error("❌ Gagal terhubung ke WebSocket Realtime:", err);
