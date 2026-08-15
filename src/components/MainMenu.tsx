@@ -559,13 +559,23 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
           {/* Private Room */}
           <button
-            onClick={() => {
-              audio.playClick();
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+
+              // Safely play audio tanpa memblokir execution utama
+              try {
+                audio.playClick();
+              } catch (err) {
+                console.warn("Audio error:", err);
+              }
+
               setShowPrivateModal(true);
             }}
-            className="w-full p-4 bg-slate-900 border-2 border-slate-800 hover:border-slate-700 rounded-2xl flex items-center justify-between transition shadow-xl"
+            className="w-full p-4 bg-slate-900 border-2 border-slate-800 hover:border-slate-700 rounded-2xl flex items-center justify-between transition shadow-xl cursor-pointer relative z-10 active:scale-98"
           >
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 pointer-events-none">
               <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
                 <Users className="w-6 h-6 text-purple-400" />
               </div>
@@ -578,7 +588,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 </span>
               </div>
             </div>
-            <span className="text-xs font-bold text-purple-400 bg-purple-950/60 px-3 py-1.5 rounded-lg border border-purple-800">
+            <span className="text-xs font-bold text-purple-400 bg-purple-950/60 px-3 py-1.5 rounded-lg border border-purple-800 pointer-events-none">
               CODE ROOM
             </span>
           </button>

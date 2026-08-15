@@ -11,6 +11,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Inisialisasi Supabase Client dengan opsi Realtime yang benar
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
   realtime: {
     params: {
       eventsPerSecond: 10,
