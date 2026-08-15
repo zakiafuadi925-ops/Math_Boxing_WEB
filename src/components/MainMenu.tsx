@@ -24,9 +24,6 @@ import {
   Medal,
   Globe,
   RefreshCw,
-  LogOut,
-  LogIn,
-  ShieldCheck,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -48,8 +45,9 @@ import {
   loadDailyChallengeState,
   DailyChallengeState,
 } from "../utils/dailyChallenges";
-import { useAuth, UserProfile } from "../hooks/useAuth";
-import { supabase } from "../lib/supabase";
+import { LoginModal } from "./LoginModal";
+import { PlayerProfile } from "../lib/firebase";
+import { User, LogIn, ShieldCheck } from "lucide-react";
 
 interface MainMenuProps {
   onStartGame: (
@@ -60,9 +58,15 @@ interface MainMenuProps {
   ) => void;
   selectedCategory: QuestionCategory;
   onSelectCategory: (cat: QuestionCategory) => void;
+  playerName: string;
+  onUpdatePlayerName: (name: string) => void;
+  lifetimeScore: number;
   selectedSkinId: string;
   onSelectSkin: (skinId: string) => void;
   onAddLifetimePoints?: (points: number) => void;
+  currentUser: PlayerProfile | null;
+  onUserLogin: (user: PlayerProfile) => void;
+  onUserLogout: () => void;
 }
 
 interface LeaderboardEntry {
@@ -75,38 +79,118 @@ interface LeaderboardEntry {
   badge: string;
   isCurrentUser?: boolean;
   status: "online" | "in_match" | "offline";
+  categoryLabel?: string;
 }
+
+const DEFAULT_MOCK_LEADERBOARD: LeaderboardEntry[] = [
+  {
+    id: "lb-1",
+    name: "Budi Math-Champ",
+    avatar: "🥇",
+    score: 480,
+    winRate: 96,
+    badge: "Grandmaster",
+    status: "online",
+    categoryLabel: "Aritmatika",
+  },
+  {
+    id: "lb-2",
+    name: "Siti Speed-Math",
+    avatar: "🥈",
+    score: 410,
+    winRate: 92,
+    badge: "Master",
+    status: "in_match",
+    categoryLabel: "Aljabar",
+  },
+  {
+    id: "lb-3",
+    name: "Rizky KO-Striker",
+    avatar: "🥉",
+    score: 360,
+    winRate: 88,
+    badge: "Diamond",
+    status: "online",
+    categoryLabel: "Akar Pangkat",
+  },
+  {
+    id: "lb-4",
+    name: "Ahmad Speed-Calc",
+    avatar: "🥊",
+    score: 310,
+    winRate: 85,
+    badge: "Platinum",
+    status: "offline",
+    categoryLabel: "Fisika Dasar",
+  },
+  {
+    id: "lb-5",
+    name: "Dewi Formula-Pro",
+    avatar: "⚡",
+    score: 275,
+    winRate: 81,
+    badge: "Gold",
+    status: "online",
+    categoryLabel: "Geometri",
+  },
+  {
+    id: "lb-6",
+    name: "Fajar Smart-Kid",
+    avatar: "🧠",
+    score: 230,
+    winRate: 77,
+    badge: "Silver",
+    status: "in_match",
+    categoryLabel: "Counting",
+  },
+  {
+    id: "lb-7",
+    name: "Nadia Math-Ninja",
+    avatar: "🥷",
+    score: 195,
+    winRate: 74,
+    badge: "Silver",
+    status: "offline",
+    categoryLabel: "Semua Materi",
+  },
+];
 
 export const MainMenu: React.FC<MainMenuProps> = ({
   onStartGame,
   selectedCategory,
   onSelectCategory,
+  playerName,
+  onUpdatePlayerName,
+  lifetimeScore,
   selectedSkinId,
   onSelectSkin,
   onAddLifetimePoints,
+  currentUser,
+  onUserLogin,
+  onUserLogout,
 }) => {
-  // Integration Supabase Auth Hook
-  const {
-    user,
-    profile,
-    loading: authLoading,
-    signOut,
-    refreshProfile,
-  } = useAuth();
-
   const [activeTab, setActiveTab] = useState<
     "arena" | "stats" | "leaderboard" | "skins"
   >("arena");
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showPrivateModal, setShowPrivateModal] = useState(false);
   const [showDailyModal, setShowDailyModal] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [dailyState, setDailyState] = useState<DailyChallengeState>(() =>
     loadDailyChallengeState(),
   );
 
-  const [dbLeaderboard, setDbLeaderboard] = useState<UserProfile[]>([]);
-  const [isRefreshingLeaderboard, setIsRefreshingLeaderboard] = useState(false);
+  useEffect(() => {
+    setDailyState(loadDailyChallengeState());
+  }, [activeTab, showDailyModal]);
 
+  const dailyCompletedCount = dailyState.challenges.filter(
+    (c) => c.isCompleted,
+  ).length;
+  const dailyTotalCount = dailyState.challenges.length;
+  const hasUnclaimedDaily = dailyState.challenges.some(
+    (c) => c.isCompleted && !c.isClaimed,
+  );
   const [roomInput, setRoomInput] = useState("");
   const [aiDifficulty, setAiDifficulty] = useState<"easy" | "normal" | "hard">(
     "normal",
@@ -124,34 +208,9 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     }
     return true;
   });
-
   const [matchHistory, setMatchHistory] = useState<MatchRecord[]>([]);
   const [fullMatchHistory, setFullMatchHistory] = useState<MatchRecord[]>([]);
-
-  // Fetch Leaderboard Asli dari Supabase
-  const fetchGlobalLeaderboard = async () => {
-    setIsRefreshingLeaderboard(true);
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, username, avatar_url, total_score, wins, matches_played")
-      .order("total_score", { ascending: false })
-      .limit(20);
-
-    if (error) {
-      console.error("Gagal memuat leaderboard:", error.message);
-    } else if (data) {
-      setDbLeaderboard(data);
-    }
-    setIsRefreshingLeaderboard(false);
-  };
-
-  useEffect(() => {
-    fetchGlobalLeaderboard();
-  }, [activeTab]);
-
-  useEffect(() => {
-    setDailyState(loadDailyChallengeState());
-  }, [activeTab, showDailyModal]);
+  const [isRefreshingLeaderboard, setIsRefreshingLeaderboard] = useState(false);
 
   useEffect(() => {
     try {
@@ -166,68 +225,61 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     }
   }, []);
 
-  const dailyCompletedCount = dailyState.challenges.filter(
-    (c) => c.isCompleted,
-  ).length;
-  const dailyTotalCount = dailyState.challenges.length;
-  const hasUnclaimedDaily = dailyState.challenges.some(
-    (c) => c.isCompleted && !c.isClaimed,
-  );
-
-  // Login via Supabase Google OAuth
-  const handleGoogleLogin = async () => {
-    audio.playClick();
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
-  };
-
-  // Skor user saat ini dari profil Supabase
-  const currentLifetimeScore = profile?.total_score ?? 0;
-  const currentUserName =
-    profile?.username ?? (user?.user_metadata?.full_name || "Guest Boxer");
-  const currentUserAvatar =
-    profile?.avatar_url ?? user?.user_metadata?.avatar_url;
-
-  // Format data leaderboard untuk UI
+  // Compute Mock Global Leaderboard combined with local user score
   const computedLeaderboard = useMemo(() => {
-    return dbLeaderboard.map((item, idx) => {
-      const winRate =
-        item.matches_played > 0
-          ? Math.round((item.wins / item.matches_played) * 100)
-          : 0;
-      const badge =
-        item.total_score >= 450
-          ? "Grandmaster"
-          : item.total_score >= 350
-            ? "Master"
-            : item.total_score >= 250
-              ? "Diamond"
-              : item.total_score >= 150
-                ? "Platinum"
-                : item.total_score >= 50
-                  ? "Gold"
-                  : "Pemula";
+    const userRankBadge =
+      lifetimeScore >= 450
+        ? "Grandmaster"
+        : lifetimeScore >= 350
+          ? "Master"
+          : lifetimeScore >= 250
+            ? "Diamond"
+            : lifetimeScore >= 150
+              ? "Platinum"
+              : lifetimeScore >= 50
+                ? "Gold"
+                : "Pemula";
 
-      return {
-        id: item.id,
-        rank: idx + 1,
-        name: item.username || "Petinju Anonim",
-        avatar: item.avatar_url ? "🥊" : "⭐",
-        score: item.total_score,
-        winRate,
-        badge,
-        isCurrentUser: user?.id === item.id,
-        status: "online" as const,
-      };
-    });
-  }, [dbLeaderboard, user]);
+    const currentUserEntry: LeaderboardEntry = {
+      id: "current-user-lb",
+      name: playerName ? `${playerName}` : "Pemain Kamu",
+      avatar: "⭐",
+      score: lifetimeScore,
+      winRate: Math.round(
+        fullMatchHistory.length > 0
+          ? (fullMatchHistory.filter((m) => m.result === "win").length /
+              fullMatchHistory.length) *
+              100
+          : 0,
+      ),
+      badge: userRankBadge,
+      isCurrentUser: true,
+      status: "online",
+      categoryLabel:
+        selectedCategory === "all"
+          ? "Semua Materi"
+          : selectedCategory.toUpperCase(),
+    };
+
+    const list = [...DEFAULT_MOCK_LEADERBOARD, currentUserEntry];
+    list.sort((a, b) => b.score - a.score);
+
+    return list.map((entry, idx) => ({
+      ...entry,
+      rank: idx + 1,
+    }));
+  }, [lifetimeScore, playerName, fullMatchHistory, selectedCategory]);
 
   const currentUserRank =
     computedLeaderboard.find((e) => e.isCurrentUser)?.rank || "-";
+
+  const handleRefreshLeaderboard = () => {
+    audio.playClick();
+    setIsRefreshingLeaderboard(true);
+    setTimeout(() => {
+      setIsRefreshingLeaderboard(false);
+    }, 600);
+  };
 
   // Compute Lifetime Statistics & Accuracy Trend
   const statsSummary = useMemo(() => {
@@ -241,7 +293,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
         trendData: [],
         categoryData: [],
         improvementMessage:
-          "Belum ada data pertandingan. Selesaikan match pertamamu di Arena!",
+          "Belum ada data pertandingan. Selesaikan match pertamamu di Arena untuk mencatat tren statistik!",
       };
     }
 
@@ -249,9 +301,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     const totalWins = fullMatchHistory.filter((m) => m.result === "win").length;
     const winRate = Math.round((totalWins / totalGames) * 100);
 
+    // Chronological order (oldest -> newest) for trend chart
     const chronological = [...fullMatchHistory].reverse();
-    let totalAccSum = 0;
 
+    let totalAccSum = 0;
     const trendData = chronological.map((item, index) => {
       const acc =
         item.accuracy !== undefined
@@ -263,10 +316,12 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               : 0;
 
       totalAccSum += acc;
+      const runningAvg = Math.round(totalAccSum / (index + 1));
+
       return {
         matchName: `M${index + 1}`,
         accuracy: acc,
-        runningAvg: Math.round(totalAccSum / (index + 1)),
+        runningAvg,
         score: item.p1Score,
         opponent: item.opponentName,
         result:
@@ -283,17 +338,86 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     });
 
     const avgAccuracy = Math.round(totalAccSum / totalGames);
+    const totalScore = fullMatchHistory.reduce(
+      (sum, m) => sum + (m.p1Score || 0),
+      0,
+    );
+
+    // Category accuracy breakdown
+    const categoryStats: Record<
+      string,
+      { totalAcc: number; count: number; label: string }
+    > = {
+      all: { totalAcc: 0, count: 0, label: "Semua" },
+      arithmetic: { totalAcc: 0, count: 0, label: "Aritmatika" },
+      counting: { totalAcc: 0, count: 0, label: "Counting" },
+      algebra: { totalAcc: 0, count: 0, label: "Aljabar" },
+      roots: { totalAcc: 0, count: 0, label: "Akar" },
+      physics: { totalAcc: 0, count: 0, label: "Fisika" },
+      geometry: { totalAcc: 0, count: 0, label: "Geometri" },
+    };
+
+    chronological.forEach((m) => {
+      const acc =
+        m.accuracy !== undefined
+          ? m.accuracy
+          : m.totalAnswered && m.totalAnswered > 0
+            ? Math.round((m.correctCount! / m.totalAnswered!) * 100)
+            : m.p1Score > 0
+              ? 75
+              : 0;
+
+      const catKey = m.category || "all";
+      if (!categoryStats[catKey]) {
+        categoryStats[catKey] = { totalAcc: 0, count: 0, label: catKey };
+      }
+      categoryStats[catKey].totalAcc += acc;
+      categoryStats[catKey].count += 1;
+    });
+
+    const categoryData = Object.keys(categoryStats)
+      .filter((key) => categoryStats[key].count > 0)
+      .map((key) => ({
+        category: categoryStats[key].label,
+        accuracy: Math.round(
+          categoryStats[key].totalAcc / categoryStats[key].count,
+        ),
+        games: categoryStats[key].count,
+      }));
+
+    // Insight message
+    let improvementMessage = "Akurasi stabil. Pertahankan performa!";
+    if (trendData.length >= 3) {
+      const recent3 = trendData.slice(-3);
+      const earlier = trendData.slice(0, Math.max(1, trendData.length - 3));
+      const recentAvg = Math.round(
+        recent3.reduce((s, i) => s + i.accuracy, 0) / recent3.length,
+      );
+      const earlierAvg = Math.round(
+        earlier.reduce((s, i) => s + i.accuracy, 0) / earlier.length,
+      );
+      const diff = recentAvg - earlierAvg;
+
+      if (diff > 5) {
+        improvementMessage = `🚀 Luar biasa! Akurasi meningkat +${diff}% dibanding match awal!`;
+      } else if (diff < -5) {
+        improvementMessage = `💡 Tips: Jawab lebih teliti untuk menjaga combo streak pemicu skor!`;
+      } else {
+        improvementMessage = `⚡ Konsistensi sangat baik! Rata-rata akurasi berada di level ${avgAccuracy}%.`;
+      }
+    }
 
     return {
       totalGames,
       totalWins,
       winRate,
       avgAccuracy,
-      totalScore: currentLifetimeScore,
+      totalScore,
       trendData,
-      improvementMessage: `⚡ Konsistensi sangat baik! Rata-rata akurasi berada di level ${avgAccuracy}%.`,
+      categoryData,
+      improvementMessage,
     };
-  }, [fullMatchHistory, currentLifetimeScore]);
+  }, [fullMatchHistory]);
 
   const toggleSound = () => {
     const nextSound = !soundOn;
@@ -321,54 +445,52 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     <div className="w-full max-w-xl mx-auto flex flex-col items-center justify-center p-4">
       {/* Top Header Bar */}
       <div className="w-full flex items-center justify-between mb-3 bg-slate-900/80 border border-slate-800 rounded-2xl px-4 py-2.5 backdrop-blur">
-        <div className="flex items-center gap-2.5">
-          {currentUserAvatar ? (
+        <button
+          type="button"
+          onClick={() => {
+            audio.playClick();
+            setShowLoginModal(true);
+          }}
+          className="flex items-center gap-2.5 p-1 px-2.5 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 hover:border-blue-500/50 rounded-2xl transition text-left active:scale-95 group"
+          title="Klik untuk Pengaturan Akun & Login Google"
+        >
+          {currentUser?.photoURL ? (
             <img
-              src={currentUserAvatar}
-              alt={currentUserName}
+              src={currentUser.photoURL}
+              alt={currentUser.displayName}
               className="w-8 h-8 rounded-full border-2 border-amber-400 object-cover shadow"
             />
           ) : (
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 via-indigo-500 to-amber-400 flex items-center justify-center font-arcade font-bold text-white text-xs shadow border border-blue-400/50">
-              {currentUserName.charAt(0).toUpperCase()}
+              {currentUser
+                ? currentUser.displayName.charAt(0).toUpperCase()
+                : "G"}
             </div>
           )}
           <div>
             <div className="flex items-center gap-1">
               <span className="font-bold text-xs text-slate-100 truncate max-w-[110px]">
-                {currentUserName}
+                {currentUser
+                  ? currentUser.displayName
+                  : playerName || "Guest Player"}
               </span>
-              {user ? (
+              {currentUser ? (
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              ) : null}
+              ) : (
+                <span className="text-[9px] bg-blue-950 text-blue-300 font-bold px-1.5 py-0.2 rounded border border-blue-500 group-hover:bg-blue-900 transition">
+                  LOGIN
+                </span>
+              )}
             </div>
             <span className="block text-[10px] text-emerald-400 font-medium">
-              {user ? "● Supabase Google Active" : "● Guest Mode"}
+              {currentUser
+                ? "● Terverifikasi Google"
+                : "● Masuk Google (Simpan Score)"}
             </span>
           </div>
-        </div>
+        </button>
 
         <div className="flex items-center gap-2">
-          {user ? (
-            <button
-              onClick={() => {
-                audio.playClick();
-                signOut();
-              }}
-              className="p-2 bg-slate-800 hover:bg-rose-950/80 text-rose-400 rounded-xl border border-rose-800/50 transition flex items-center gap-1"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          ) : (
-            <button
-              onClick={handleGoogleLogin}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 shadow transition"
-            >
-              <LogIn className="w-3.5 h-3.5" /> LOGIN GOOGLE
-            </button>
-          )}
-
           <button
             onClick={() => {
               audio.playClick();
@@ -387,10 +509,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-400 rounded-full border-2 border-slate-900" />
             ) : null}
           </button>
-
           <button
             onClick={toggleSound}
             className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 text-amber-400 transition"
+            title="Toggle Audio"
           >
             {soundOn ? (
               <Volume2 className="w-5 h-5" />
@@ -401,6 +523,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           <button
             onClick={() => setShowHowToPlay(true)}
             className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 text-amber-400 transition"
+            title="Cara Bermain"
           >
             <BookOpen className="w-5 h-5" />
           </button>
@@ -482,6 +605,39 @@ export const MainMenu: React.FC<MainMenuProps> = ({
       {/* TAB 1: ARENA BERMAIN */}
       {activeTab === "arena" && (
         <div className="w-full space-y-3">
+          {/* Daily Challenge Card Banner */}
+          <div className="w-full p-3.5 bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border-2 border-amber-500/40 rounded-2xl shadow-lg flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-500/20 border border-amber-500/40 rounded-xl text-amber-400">
+                <Trophy className="w-6 h-6 animate-bounce" />
+              </div>
+              <div className="text-left">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-arcade text-sm font-bold text-amber-400 uppercase tracking-wide">
+                    TANTANGAN HARIAN
+                  </span>
+                  <span className="text-[10px] bg-amber-950 text-amber-300 font-bold px-1.5 py-0.2 rounded border border-amber-600">
+                    DAILY
+                  </span>
+                </div>
+                <span className="text-xs text-slate-300 font-medium">
+                  {dailyCompletedCount} / {dailyTotalCount} Selesai • Klaim +100
+                  - +200 PTS!
+                </span>
+              </div>
+            </div>
+
+            <button
+              onClick={() => {
+                audio.playClick();
+                setShowDailyModal(true);
+              }}
+              className="py-1.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-arcade font-black text-xs rounded-xl shadow-md transition active:scale-95 shrink-0 flex items-center gap-1"
+            >
+              LIHAT
+            </button>
+          </div>
+
           {/* Quick Match Online */}
           <button
             onClick={() => {
@@ -559,23 +715,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
           {/* Private Room */}
           <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-
-              // Safely play audio tanpa memblokir execution utama
-              try {
-                audio.playClick();
-              } catch (err) {
-                console.warn("Audio error:", err);
-              }
-
+            onClick={() => {
+              audio.playClick();
               setShowPrivateModal(true);
             }}
-            className="w-full p-4 bg-slate-900 border-2 border-slate-800 hover:border-slate-700 rounded-2xl flex items-center justify-between transition shadow-xl cursor-pointer relative z-10 active:scale-98"
+            className="w-full p-4 bg-slate-900 border-2 border-slate-800 hover:border-slate-700 rounded-2xl flex items-center justify-between transition shadow-xl"
           >
-            <div className="flex items-center gap-3 pointer-events-none">
+            <div className="flex items-center gap-3">
               <div className="p-3 bg-purple-500/10 rounded-xl border border-purple-500/20">
                 <Users className="w-6 h-6 text-purple-400" />
               </div>
@@ -588,7 +734,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 </span>
               </div>
             </div>
-            <span className="text-xs font-bold text-purple-400 bg-purple-950/60 px-3 py-1.5 rounded-lg border border-purple-800 pointer-events-none">
+            <span className="text-xs font-bold text-purple-400 bg-purple-950/60 px-3 py-1.5 rounded-lg border border-purple-800">
               CODE ROOM
             </span>
           </button>
@@ -619,28 +765,132 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               ))}
             </div>
           </div>
+
+          {/* Recent Match History Widget */}
+          <div className="w-full bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4 my-2">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <History className="w-4 h-4 text-amber-400" />
+                RIWAYAT PERTANDINGAN TERAKHIR
+              </h3>
+              <span className="text-[10px] text-slate-500 font-medium">
+                5 Match Terakhir
+              </span>
+            </div>
+
+            {matchHistory.length === 0 ? (
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 text-center">
+                <p className="text-xs text-slate-400">
+                  Belum ada riwayat pertandingan. Mulai bertanding untuk
+                  mencatat skor!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {matchHistory.map((item) => {
+                  const isWin = item.result === "win";
+                  const isDraw = item.result === "draw";
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="bg-slate-950 border border-slate-800/80 rounded-xl p-3 flex items-center justify-between hover:border-slate-700 transition"
+                    >
+                      <div className="flex items-center gap-3">
+                        {isWin ? (
+                          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                            <CheckCircle2 className="w-4 h-4" />
+                          </div>
+                        ) : isDraw ? (
+                          <div className="w-8 h-8 rounded-lg bg-yellow-500/20 border border-yellow-500/40 flex items-center justify-center text-yellow-400">
+                            <MinusCircle className="w-4 h-4" />
+                          </div>
+                        ) : (
+                          <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                            <XCircle className="w-4 h-4" />
+                          </div>
+                        )}
+
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`font-arcade text-xs ${
+                                isWin
+                                  ? "text-emerald-400"
+                                  : isDraw
+                                    ? "text-yellow-400"
+                                    : "text-rose-400"
+                              }`}
+                            >
+                              {isWin
+                                ? "MENANG (KO)"
+                                : isDraw
+                                  ? "SERI"
+                                  : "KALAH"}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-medium">
+                              VS {item.opponentName}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 block capitalize">
+                            Mode:{" "}
+                            {item.mode === "practice"
+                              ? "Latihan AI"
+                              : item.mode === "quick_match"
+                                ? "Quick Online"
+                                : "Private Room"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="font-arcade text-base text-slate-100 font-bold block">
+                          {item.p1Score}{" "}
+                          <span className="text-slate-500 text-xs">-</span>{" "}
+                          {item.p2Score}
+                        </span>
+                        <span className="text-[9px] text-slate-500">
+                          {new Date(item.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
-      {/* TAB 2: STATISTIK */}
+      {/* TAB 2: STATISTIK & TREN AKURASI (RECHARTS) */}
       {activeTab === "stats" && (
         <div className="w-full space-y-3">
+          {/* KPI Statistics Header Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                AKURASI
+                AKURASI SEPANJANG WAKTU
               </span>
               <span className="font-arcade text-2xl text-emerald-400 block mt-1">
                 {statsSummary.avgAccuracy}%
+              </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">
+                Rata-Rata Total
               </span>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                MATCHES
+                TOTAL MATCH
               </span>
               <span className="font-arcade text-2xl text-amber-400 block mt-1">
                 {statsSummary.totalGames}
+              </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">
+                Selesai Bertanding
               </span>
             </div>
 
@@ -651,6 +901,9 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               <span className="font-arcade text-2xl text-blue-400 block mt-1">
                 {statsSummary.winRate}%
               </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">
+                {statsSummary.totalWins} Kemenangan
+              </span>
             </div>
 
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center">
@@ -658,26 +911,224 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 TOTAL SKOR
               </span>
               <span className="font-arcade text-2xl text-purple-400 block mt-1">
-                {currentLifetimeScore}
+                {lifetimeScore}
+              </span>
+              <span className="text-[10px] text-slate-500 block mt-0.5">
+                Akumulasi Poin
               </span>
             </div>
           </div>
+
+          {/* Insight Improvement Banner */}
+          <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-3.5 flex items-center gap-3 shadow-lg">
+            <div className="p-2.5 bg-amber-500/20 border border-amber-500/40 rounded-xl text-amber-400 flex-shrink-0">
+              <Zap className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-xs font-bold text-amber-300 block">
+                ANALISIS PERFORMA KAMU:
+              </span>
+              <p className="text-xs text-slate-300 mt-0.5">
+                {statsSummary.improvementMessage}
+              </p>
+            </div>
+          </div>
+
+          {/* Lifetime Accuracy Trend Chart */}
+          <div className="bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                  TREN AKURASI SEPANJANG WAKTU (%)
+                </h3>
+              </div>
+              <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                <Activity className="w-3 h-3 text-emerald-400" /> Recharts
+                Chronological
+              </span>
+            </div>
+
+            {statsSummary.trendData.length === 0 ? (
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-8 text-center my-2">
+                <p className="text-xs text-slate-400">
+                  Belum ada grafik statistik. Mainkan beberapa pertandingan di
+                  Arena untuk melihat grafik tren perkembanganmu!
+                </p>
+              </div>
+            ) : (
+              <div className="w-full h-52 mt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={statsSummary.trendData}
+                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="lifetimeGrad"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor="#10b981"
+                          stopOpacity={0.4}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor="#10b981"
+                          stopOpacity={0.0}
+                        />
+                      </linearGradient>
+                      <linearGradient id="avgGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop
+                          offset="5%"
+                          stopColor="#3b82f6"
+                          stopOpacity={0.2}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor="#3b82f6"
+                          stopOpacity={0.0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis
+                      dataKey="matchName"
+                      stroke="#64748b"
+                      fontSize={10}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke="#64748b"
+                      fontSize={10}
+                      domain={[0, 100]}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#020617",
+                        borderColor: "#334155",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        color: "#f8fafc",
+                      }}
+                      itemStyle={{ padding: "2px 0" }}
+                      formatter={(value: any, name: any) => {
+                        if (name === "accuracy")
+                          return [`${value}%`, "Akurasi Match"];
+                        if (name === "runningAvg")
+                          return [`${value}%`, "Rata-Rata Kumulatif"];
+                        return [value, name];
+                      }}
+                      labelFormatter={(label, items) => {
+                        if (items && items.length > 0 && items[0].payload) {
+                          const p = items[0].payload;
+                          return `${label} (${p.date}) • VS ${p.opponent} [${p.result}]`;
+                        }
+                        return label;
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="accuracy"
+                      stroke="#10b981"
+                      strokeWidth={2.5}
+                      fillOpacity={1}
+                      fill="url(#lifetimeGrad)"
+                      name="accuracy"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="runningAvg"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      strokeDasharray="4 4"
+                      fillOpacity={1}
+                      fill="url(#avgGrad)"
+                      name="runningAvg"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </div>
+
+          {/* Category Accuracy Breakdown */}
+          {statsSummary.categoryData.length > 0 && (
+            <div className="bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Target className="w-4 h-4 text-amber-400" />
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                  AKURASI BERDASARKAN KATEGORI SOAL (%)
+                </h3>
+              </div>
+
+              <div className="w-full h-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={statsSummary.categoryData}
+                    margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis
+                      dataKey="category"
+                      stroke="#64748b"
+                      fontSize={10}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      stroke="#64748b"
+                      fontSize={10}
+                      domain={[0, 100]}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#020617",
+                        borderColor: "#334155",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        color: "#f8fafc",
+                      }}
+                      formatter={(value: any) => [
+                        `${value}%`,
+                        "Akurasi Rata-Rata",
+                      ]}
+                    />
+                    <Bar dataKey="accuracy" radius={[6, 6, 0, 0]}>
+                      {statsSummary.categoryData.map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={index % 2 === 0 ? "#f59e0b" : "#3b82f6"}
+                        />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* TAB 3: LEADERBOARD REALTIME */}
+      {/* TAB 3: MOCK GLOBAL LEADERBOARD */}
       {activeTab === "leaderboard" && (
         <div className="w-full space-y-3">
+          {/* Header Banner & Live Server Sync Status */}
           <div className="bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4 shadow-xl">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Globe className="w-5 h-5 text-amber-400" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-100">
-                  KLASEMEN GLOBAL SUPABASE
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-100 flex items-center gap-1.5">
+                  KLASEMEN GLOBAL MATH BOXER
                 </h3>
               </div>
               <button
-                onClick={fetchGlobalLeaderboard}
+                onClick={handleRefreshLeaderboard}
                 disabled={isRefreshingLeaderboard}
                 className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 active:scale-95 border border-slate-700 rounded-lg text-[11px] font-bold text-amber-400 transition"
               >
@@ -687,50 +1138,245 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 {isRefreshingLeaderboard ? "Syncing..." : "Refresh"}
               </button>
             </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800/80 pt-2.5">
+              <span className="flex items-center gap-1 text-emerald-400 font-medium">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                Database Server Cloud Terhubung
+              </span>
+              <span className="text-slate-500 font-arcade text-[10px]">
+                60S SUDDEN DEATH ARENA
+              </span>
+            </div>
           </div>
 
-          <div className="bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-3 shadow-xl max-h-80 overflow-y-auto">
-            {computedLeaderboard.map((entry) => (
-              <div
-                key={entry.id}
-                className={`flex items-center justify-between p-2.5 rounded-xl border mb-1.5 transition ${
-                  entry.isCurrentUser
-                    ? "bg-amber-500/10 border-amber-400/80 shadow-md"
-                    : "bg-slate-950/60 border-slate-800/80"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="w-7 h-7 rounded-lg bg-slate-800 flex items-center justify-center font-arcade font-bold text-xs text-amber-400">
-                    #{entry.rank}
+          {/* User Current Live Rank Highlight Card */}
+          <div className="bg-gradient-to-r from-amber-950/70 via-slate-900 to-slate-900 border-2 border-amber-500/60 rounded-2xl p-3.5 flex items-center justify-between shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center font-arcade font-black text-slate-950 text-xl shadow-md border border-amber-300">
+                #{currentUserRank}
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-bold text-sm text-slate-100">
+                    {playerName || "Pemain Kamu"}
                   </span>
-                  <div>
-                    <span className="font-bold text-xs text-slate-200 block">
-                      {entry.name} {entry.isCurrentUser && "(YOU)"}
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      {entry.badge}
-                    </span>
-                  </div>
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 font-arcade font-black text-[9px] uppercase tracking-wide">
+                    KAMU
+                  </span>
                 </div>
-
-                <div className="text-right">
-                  <span className="font-arcade text-sm font-bold text-amber-400 block">
-                    {entry.score}
+                <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-300">
+                  <span className="text-amber-400 font-bold">
+                    {lifetimeScore} PTS
                   </span>
-                  <span className="text-[9px] text-slate-500 block">PTS</span>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-slate-400 text-[11px]">
+                    Kategori: {selectedCategory.toUpperCase()}
+                  </span>
                 </div>
               </div>
-            ))}
+            </div>
+
+            <div className="text-right">
+              <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-arcade text-[10px] font-bold block">
+                {lifetimeScore >= 350
+                  ? "MASTER"
+                  : lifetimeScore >= 150
+                    ? "DIAMOND"
+                    : "PETINJU KELAS"}
+              </span>
+              <span className="text-[10px] text-slate-400 block mt-1">
+                Peringkat #{currentUserRank} dari {computedLeaderboard.length}{" "}
+                Pemain
+              </span>
+            </div>
+          </div>
+
+          {/* Top 3 Podium Highlights */}
+          <div className="grid grid-cols-3 gap-2 py-1">
+            {/* Rank 2 - Silver */}
+            {computedLeaderboard[1] && (
+              <div className="bg-slate-900/80 border border-slate-700/80 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <Medal className="w-6 h-6 text-slate-300 drop-shadow" />
+                </div>
+                <div className="mt-2 text-2xl">
+                  {computedLeaderboard[1].avatar}
+                </div>
+                <div className="mt-1 w-full truncate">
+                  <span className="font-bold text-xs text-slate-200 block truncate">
+                    {computedLeaderboard[1].name}
+                  </span>
+                  <span className="text-[10px] text-amber-400 font-bold block">
+                    {computedLeaderboard[1].score} PTS
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {computedLeaderboard[1].badge}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Rank 1 - Gold Champion */}
+            {computedLeaderboard[0] && (
+              <div className="bg-gradient-to-b from-amber-950/90 to-slate-900 border-2 border-amber-400 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow-xl scale-105 z-10">
+                <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                  <Crown className="w-7 h-7 text-yellow-300 fill-yellow-400 drop-shadow-[0_2px_8px_rgba(250,204,21,0.8)]" />
+                </div>
+                <div className="mt-2 text-3xl">
+                  {computedLeaderboard[0].avatar}
+                </div>
+                <div className="mt-1 w-full truncate">
+                  <span className="font-arcade text-xs font-black text-amber-300 block truncate">
+                    {computedLeaderboard[0].name}
+                  </span>
+                  <span className="text-xs text-yellow-300 font-black block mt-0.5">
+                    {computedLeaderboard[0].score} PTS
+                  </span>
+                  <span className="text-[9px] text-amber-200/80 font-semibold block">
+                    {computedLeaderboard[0].badge}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Rank 3 - Bronze */}
+            {computedLeaderboard[2] && (
+              <div className="bg-slate-900/80 border border-amber-900/60 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                  <Medal className="w-6 h-6 text-amber-600 drop-shadow" />
+                </div>
+                <div className="mt-2 text-2xl">
+                  {computedLeaderboard[2].avatar}
+                </div>
+                <div className="mt-1 w-full truncate">
+                  <span className="font-bold text-xs text-slate-200 block truncate">
+                    {computedLeaderboard[2].name}
+                  </span>
+                  <span className="text-[10px] text-amber-400 font-bold block">
+                    {computedLeaderboard[2].score} PTS
+                  </span>
+                  <span className="text-[9px] text-slate-500 block">
+                    {computedLeaderboard[2].badge}
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Full Leaderboard Ranking Table */}
+          <div className="bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-3 shadow-xl">
+            <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 px-3 py-1.5 border-b border-slate-800 mb-1">
+              <div className="flex items-center gap-4">
+                <span>RANK</span>
+                <span>PETINJU</span>
+              </div>
+              <div className="flex items-center gap-6">
+                <span>DIVISI</span>
+                <span>TOTAL SKOR</span>
+              </div>
+            </div>
+
+            <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+              {computedLeaderboard.map((entry) => (
+                <div
+                  key={entry.id}
+                  className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
+                    entry.isCurrentUser
+                      ? "bg-amber-500/10 border-amber-400/80 shadow-md"
+                      : "bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/40"
+                  }`}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center font-arcade font-bold text-xs flex-shrink-0 ${
+                        entry.rank === 1
+                          ? "bg-yellow-400 text-slate-950 shadow-md"
+                          : entry.rank === 2
+                            ? "bg-slate-300 text-slate-950"
+                            : entry.rank === 3
+                              ? "bg-amber-700 text-white"
+                              : "bg-slate-800 text-slate-300"
+                      }`}
+                    >
+                      #{entry.rank}
+                    </span>
+                    <span className="text-lg flex-shrink-0">
+                      {entry.avatar}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span
+                          className={`font-bold text-xs truncate ${
+                            entry.isCurrentUser
+                              ? "text-amber-300 font-black"
+                              : "text-slate-200"
+                          }`}
+                        >
+                          {entry.name}
+                        </span>
+                        {entry.isCurrentUser && (
+                          <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 font-arcade text-[8px] font-bold">
+                            YOU
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                        <span className="flex items-center gap-1">
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              entry.status === "online"
+                                ? "bg-emerald-400"
+                                : entry.status === "in_match"
+                                  ? "bg-amber-400 animate-pulse"
+                                  : "bg-slate-600"
+                            }`}
+                          />
+                          {entry.status === "online"
+                            ? "Online"
+                            : entry.status === "in_match"
+                              ? "Bertarung"
+                              : "Offline"}
+                        </span>
+                        <span>•</span>
+                        <span>{entry.winRate}% Win</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 text-right flex-shrink-0">
+                    <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-medium hidden sm:inline-block">
+                      {entry.badge}
+                    </span>
+                    <div className="w-16">
+                      <span className="font-arcade text-sm font-bold text-amber-400 block">
+                        {entry.score}
+                      </span>
+                      <span className="text-[9px] text-slate-500 block">
+                        PTS
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
-
-      {/* TAB 4: SKINS */}
       {activeTab === "skins" && (
         <div className="w-full bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <Shirt className="w-4 h-4 text-amber-400" />
+              KOSTUM & WARNA PETINJU
+            </h3>
+            <span className="text-xs font-arcade text-amber-400 bg-amber-950/80 px-2.5 py-1 rounded-lg border border-amber-800 flex items-center gap-1">
+              <Trophy className="w-3.5 h-3.5" /> TOTAL: {lifetimeScore} PTS
+            </span>
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {BOXER_SKINS.map((skin: BoxerSkin) => {
-              const isUnlocked = currentLifetimeScore >= skin.minLifetimeScore;
+              const isUnlocked = lifetimeScore >= skin.minLifetimeScore;
               const isSelected = selectedSkinId === skin.id;
 
               return (
@@ -743,21 +1389,182 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                       onSelectSkin(skin.id);
                     }
                   }}
-                  className={`p-3 rounded-xl border text-left transition ${
+                  className={`p-3 rounded-xl border text-left transition relative flex flex-col justify-between min-h-[90px] ${
                     isSelected
-                      ? "bg-amber-500/20 border-amber-400"
+                      ? "bg-amber-500/20 border-amber-400 ring-2 ring-amber-400/50 shadow-lg"
                       : isUnlocked
-                        ? "bg-slate-950 border-slate-800"
-                        : "bg-slate-950/50 border-slate-900 opacity-60"
+                        ? "bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-200"
+                        : "bg-slate-950/50 border-slate-900 text-slate-600 opacity-60 cursor-not-allowed"
                   }`}
                 >
-                  <span className="text-xl">{skin.icon}</span>
-                  <span className="font-arcade text-xs font-bold text-slate-100 block mt-2">
-                    {skin.name}
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xl">{skin.icon}</span>
+                    <div className="flex items-center gap-1">
+                      <span
+                        className="w-4 h-4 rounded-full border border-slate-700 inline-block shadow-inner"
+                        style={{ backgroundColor: skin.trunksColor }}
+                        title="Warna Celana"
+                      />
+                      <span
+                        className="w-4 h-4 rounded-full border border-slate-700 inline-block shadow-inner"
+                        style={{ backgroundColor: skin.glovesColor }}
+                        title="Warna Sarung Tinju"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-arcade text-xs font-bold text-slate-100 block">
+                        {skin.name}
+                      </span>
+                      {isSelected ? (
+                        <CheckCircle2 className="w-4 h-4 text-amber-400" />
+                      ) : !isUnlocked ? (
+                        <Lock className="w-3.5 h-3.5 text-slate-500" />
+                      ) : null}
+                    </div>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">
+                      {isUnlocked
+                        ? isSelected
+                          ? "Dipakai Saat Ini"
+                          : "Klik Untuk Pakai"
+                        : skin.description}
+                    </span>
+                  </div>
                 </button>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Private Room Modal */}
+      {showPrivateModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl">
+            <h3 className="font-arcade text-xl text-amber-400 mb-2">
+              MASUKKAN KODE KAMAR
+            </h3>
+            <p className="text-xs text-slate-400 mb-4">
+              Buat kode baru atau masukkan kode temanmu
+            </p>
+
+            <div className="relative mb-3">
+              <input
+                type="text"
+                value={roomInput}
+                onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
+                placeholder="CONTOH: BOX123"
+                className="w-full bg-slate-950 border-2 border-slate-700 focus:border-amber-400 rounded-xl p-3 text-center font-arcade text-xl text-amber-300 outline-none uppercase"
+              />
+            </div>
+
+            {/* Quick Random Room Code Generator Button */}
+            <button
+              type="button"
+              onClick={() => {
+                audio.playClick();
+                const randomNum = Math.floor(100 + Math.random() * 900);
+                const prefixes = ["BOX", "RING", "KO", "MATH", "STRIKE"];
+                const prefix =
+                  prefixes[Math.floor(Math.random() * prefixes.length)];
+                setRoomInput(`${prefix}-${randomNum}`);
+              }}
+              className="w-full mb-4 py-1.5 px-3 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-500/50 rounded-lg text-xs font-bold text-purple-300 flex items-center justify-center gap-1.5 transition active:scale-95"
+            >
+              🎲 Buat Kode Otomatis (Acak)
+            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowPrivateModal(false)}
+                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-sm"
+              >
+                BATAL
+              </button>
+              <button
+                onClick={() => {
+                  if (roomInput.trim()) {
+                    audio.playClick();
+                    setShowPrivateModal(false);
+                    onStartGame(
+                      "private_room",
+                      selectedCategory,
+                      undefined,
+                      roomInput.trim(),
+                    );
+                  }
+                }}
+                className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-arcade rounded-xl text-sm"
+              >
+                MASUK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* How To Play Modal */}
+      {showHowToPlay && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-arcade text-xl text-amber-400 flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5" /> CARA BERMAIN
+              </h3>
+              <button
+                onClick={() => setShowHowToPlay(false)}
+                className="text-slate-400 hover:text-white font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <ul className="text-xs text-slate-300 space-y-2.5 leading-relaxed">
+              <li className="flex items-start gap-2">
+                <span className="font-arcade text-amber-400">1.</span>
+                <span>
+                  <b>Durasi 60 Detik:</b> Pertarungan berjalan cepat selama 1
+                  menit (Sudden Death).
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-arcade text-amber-400">2.</span>
+                <span>
+                  <b>Jawab Cepat:</b> Ketik angka jawaban pada numpad statis
+                  lalu tekan <b>ENTER</b>.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-arcade text-amber-400">3.</span>
+                <span>
+                  <b>Pukul Opponent:</b> Setiap jawaban benar membuat petinjumu
+                  memukul lawan (+2 s/d +10 poin)!
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-arcade text-amber-400">4.</span>
+                <span>
+                  <b>Penalti Salah:</b> Jika jawaban salah, Numpad akan terkunci
+                  selama 1 detik.
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="font-arcade text-amber-400">5.</span>
+                <span>
+                  <b>Pemenang:</b> Pemain dengan akumulasi skor tertinggi saat
+                  timer habis memenangkan pertandingan!
+                </span>
+              </li>
+            </ul>
+
+            <button
+              onClick={() => setShowHowToPlay(false)}
+              className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-arcade rounded-xl text-sm"
+            >
+              MENGERTI, SIAP BERTARUNG!
+            </button>
           </div>
         </div>
       )}
@@ -766,10 +1573,29 @@ export const MainMenu: React.FC<MainMenuProps> = ({
       <DailyChallengeModal
         isOpen={showDailyModal}
         onClose={() => setShowDailyModal(false)}
-        onStartChallenge={() => setActiveTab("arena")}
-        onAddLifetimePoints={(pts) =>
-          onAddLifetimePoints && onAddLifetimePoints(pts)
-        }
+        onStartChallenge={() => {
+          setActiveTab("arena");
+        }}
+        onAddLifetimePoints={(pts) => {
+          if (onAddLifetimePoints) {
+            onAddLifetimePoints(pts);
+          }
+        }}
+      />
+
+      {/* Google Login & User Account Modal */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        currentUser={currentUser}
+        onUserLogin={(user) => {
+          onUserLogin(user);
+          setShowLoginModal(false);
+        }}
+        onUserLogout={() => {
+          onUserLogout();
+          setShowLoginModal(false);
+        }}
       />
     </div>
   );

@@ -12,8 +12,7 @@ import { MathGenerator } from "./utils/mathGenerator";
 import { audio } from "./utils/audio";
 import { BOXER_SKINS } from "./utils/skins";
 import { recordMatchToChallenges } from "./utils/dailyChallenges";
-import { supabase } from "./lib/supabase";
-import { useAuth } from "./hooks/useAuth";
+import { supabase, PlayerProfile, getCurrentUserProfile } from "./lib/supabase";
 import { RealtimeChannel } from "@supabase/supabase-js";
 
 import { MainMenu } from "./components/MainMenu";
@@ -28,9 +27,6 @@ import { EmoteBar } from "./components/EmoteBar";
 import { Timer, LogOut } from "lucide-react";
 
 export default function App() {
-  // Integrasi Custom Hook Supabase Auth
-  const { user, profile, refreshProfile } = useAuth();
-
   // Navigation & Game State
   const [stage, setStage] = useState<GameStage>("main_menu");
   const [mode, setMode] = useState<GameMode>("practice");
@@ -40,6 +36,8 @@ export default function App() {
   );
   const [roomCode, setRoomCode] = useState<string>("");
   const [activeRoomId, setActiveRoomId] = useState<string>("");
+  const [playerName, setPlayerName] = useState<string>("Player 1");
+  const [currentUser, setCurrentUser] = useState<PlayerProfile | null>(null);
 
   // Realtime Channel Ref
   const gameChannelRef = useRef<RealtimeChannel | null>(null);
@@ -54,24 +52,53 @@ export default function App() {
     return localStorage.getItem("mb_selected_skin") || "rookie_red";
   });
 
-  // Sinkronisasi data user dari Hook Supabase
-  const playerName =
-    profile?.username || user?.user_metadata?.full_name || "Player 1";
-
-  useEffect(() => {
-    if (
-      profile?.total_score !== undefined &&
-      profile.total_score > lifetimeScore
-    ) {
-      setLifetimeScore(profile.total_score);
-      localStorage.setItem("mb_lifetime_score", profile.total_score.toString());
-    }
-  }, [profile, lifetimeScore]);
-
   const handleSelectSkin = (skinId: string) => {
     setSelectedSkinId(skinId);
     localStorage.setItem("mb_selected_skin", skinId);
   };
+
+  // Subscribe to Supabase Auth state & fetch remote profile
+  useEffect(() => {
+    getCurrentUserProfile().then((profile) => {
+      if (profile) {
+        setCurrentUser(profile);
+        setPlayerName(profile.name || "Petinju");
+        if (profile.high_score && profile.high_score > lifetimeScore) {
+          setLifetimeScore(profile.high_score);
+          localStorage.setItem(
+            "mb_lifetime_score",
+            profile.high_score.toString(),
+          );
+        }
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        if (session?.user) {
+          const profile = await getCurrentUserProfile();
+          if (profile) {
+            setCurrentUser(profile);
+            setPlayerName(profile.name || "Petinju");
+            if (profile.high_score && profile.high_score > lifetimeScore) {
+              setLifetimeScore(profile.high_score);
+              localStorage.setItem(
+                "mb_lifetime_score",
+                profile.high_score.toString(),
+              );
+            }
+          }
+        } else {
+          setCurrentUser(null);
+          setPlayerName("Player 1");
+        }
+      },
+    );
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
+  }, []);
 
   // Gameplay State
   const [timeRemaining, setTimeRemaining] = useState<number>(60);
@@ -152,8 +179,11 @@ export default function App() {
   }, [category]);
 
   // Start Match logic
+  // Start Match logic
   const startMatch = useCallback(
     (roomData?: { roomId?: string }) => {
+      console.log("--> startMatch dipanggil dengan roomData:", roomData);
+
       audio.playBell();
       setTimeRemaining(60);
       setTotalAnswered(0);
@@ -169,7 +199,7 @@ export default function App() {
 
       setP1((prev) => ({
         ...prev,
-        name: playerName,
+        name: playerName || "Player 1",
         score: 0,
         health: 100,
         avatarColor: activeSkin.trunksColor,
@@ -194,22 +224,75 @@ export default function App() {
         currentAction: "idle",
       }));
 
+      // LANGKAH PENTING: Ubah stage KE "in_game" TERLEBIH DAHULU agar modal langsung tertutup!
+      // Ubah stage ke "in_game" agar modal matchmaking langsung tertutup
       setStage("in_game");
 
+      // Inisialisasi Multiplayer Realtime Broadcast dengan jeda mikro agar channel lama bersih
       if (isMultiplayer && roomData?.roomId) {
         setActiveRoomId(roomData.roomId);
 
+        // Bersihkan channel sebelumnya jika ada
+        // 1. Unsubscribe/remove channel lama jika ada
         if (gameChannelRef.current) {
           supabase.removeChannel(gameChannelRef.current);
           gameChannelRef.current = null;
         }
 
+        setTimeout(() => {
+          console.log(
+            "--> Inisialisasi Game Realtime Channel:",
+            roomData.roomId,
+          );
+          const channel = supabase.channel(`game_${roomData.roomId}`);
+
+          // Dengarkan serangan/pukulan lawan
+          channel
+            .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
+              audio.playPunchHit();
+              setLastHitBy("p2");
+              triggerScreenShake("light");
+
+              setP2((prev) => ({
+                ...prev,
+                score: prev.score + payload.earnedScore,
+                currentAction: payload.punchType,
+              }));
+
+              setP1((prev) => ({
+                ...prev,
+                health: Math.max(0, prev.health - 8),
+                currentAction: "hit",
+              }));
+
+              setTimeout(() => {
+                setP1((p) => ({ ...p, currentAction: "idle" }));
+                setP2((p) => ({ ...p, currentAction: "idle" }));
+              }, 400);
+            })
+            .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
+              audio.playEmoteSound(payload.action);
+              setP2((prev) => ({ ...prev, currentAction: payload.action }));
+              setTimeout(() => {
+                setP2((p) =>
+                  p.currentAction === payload.action
+                    ? { ...p, currentAction: "idle" }
+                    : p,
+                );
+              }, 2000);
+            })
+            .subscribe();
+
+          gameChannelRef.current = channel;
+        }, 100);
+        // 2. Buat channel game baru
         const gameChannel = supabase.channel(`game_${roomData.roomId}`, {
           config: {
             broadcast: { self: false },
           },
         });
 
+        // 3. Listen Event Broadcast
         gameChannel
           .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
             audio.playPunchHit();
@@ -245,12 +328,18 @@ export default function App() {
             }, 2000);
           });
 
+        // 4. Subscribe dengan penanganan status WebSocket
         gameChannel.subscribe((status, err) => {
           if (status === "SUBSCRIBED") {
             console.log("✅ WebSocket Terhubung ke Ring Pertarungan!");
           }
           if (status === "CHANNEL_ERROR") {
             console.error("❌ Gagal terhubung ke WebSocket Realtime:", err);
+          }
+          if (status === "TIMED_OUT") {
+            console.warn(
+              "⚠️ Koneksi WebSocket Timed Out. Mencoba menghubungkan ulang...",
+            );
           }
         });
 
@@ -276,19 +365,11 @@ export default function App() {
     diff?: "easy" | "normal" | "hard",
     code?: string,
   ) => {
-    console.log("🎮 Start Game dipanggil:", {
-      selectedMode,
-      selectedCat,
-      diff,
-      code,
-    });
-
     setMode(selectedMode);
     setCategory(selectedCat);
     if (diff) setAiDifficulty(diff);
     if (code) setRoomCode(code);
 
-    // PASTIKAN "private_room" MASUK KE KONDISI INI!
     if (selectedMode === "quick_match" || selectedMode === "private_room") {
       setStage("matchmaking");
     } else {
@@ -319,7 +400,7 @@ export default function App() {
     };
   }, [stage]);
 
-  // Update Lifetime Score, Profil Supabase, & History
+  // Update Lifetime Score & Match History
   useEffect(() => {
     if (stage === "game_over") {
       if (gameChannelRef.current) {
@@ -330,23 +411,6 @@ export default function App() {
         setLifetimeScore((prevTotal) => {
           const updated = prevTotal + p1.score;
           localStorage.setItem("mb_lifetime_score", updated.toString());
-
-          // Update data ke Supabase jika user terautentikasi
-          if (user) {
-            supabase
-              .from("profiles")
-              .update({
-                total_score: updated,
-                wins:
-                  p1.score > p2.score
-                    ? (profile?.wins || 0) + 1
-                    : profile?.wins || 0,
-                matches_played: (profile?.matches_played || 0) + 1,
-              })
-              .eq("id", user.id)
-              .then(() => refreshProfile());
-          }
-
           return updated;
         });
       }
@@ -615,6 +679,9 @@ export default function App() {
           onStartGame={handleStartGame}
           selectedCategory={category}
           onSelectCategory={setCategory}
+          playerName={playerName}
+          onUpdatePlayerName={setPlayerName}
+          lifetimeScore={lifetimeScore}
           selectedSkinId={selectedSkinId}
           onSelectSkin={handleSelectSkin}
           onAddLifetimePoints={(pts) => {
@@ -623,6 +690,18 @@ export default function App() {
               localStorage.setItem("mb_lifetime_score", updated.toString());
               return updated;
             });
+          }}
+          currentUser={currentUser}
+          onUserLogin={(user) => {
+            setCurrentUser(user);
+            setPlayerName(user.name || "Petinju");
+            if (user.high_score && user.high_score > lifetimeScore) {
+              setLifetimeScore(user.high_score);
+            }
+          }}
+          onUserLogout={() => {
+            setCurrentUser(null);
+            setPlayerName("Player 1");
           }}
         />
       )}
