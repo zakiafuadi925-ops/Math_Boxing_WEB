@@ -213,7 +213,7 @@ export default function App() {
       setP2((prev) => ({
         ...prev,
         name: isMultiplayer
-          ? "Player Online"
+          ? "Menunggu Lawan..."
           : `Bot (${aiDifficulty.toUpperCase()})`,
         score: 0,
         health: 100,
@@ -253,15 +253,22 @@ export default function App() {
               setLastHitBy("p2");
               triggerScreenShake("light");
 
+              // 1. Sync Soal Baru yang dikirim oleh pemukul
+              if (payload.nextQuestion) {
+                setCurrentQuestion(payload.nextQuestion);
+              }
+
+              // 2. Set Total Skor Lawan secara Presisi (Bukan Penambahan Lokal)
               setP2((prev) => ({
                 ...prev,
-                score: prev.score + payload.earnedScore,
+                score: payload.totalScore ?? prev.score + payload.earnedScore,
                 currentAction: payload.punchType,
               }));
 
+              // 3. Set Sisa HP Kita (P1) dari Payload Lawan
               setP1((prev) => ({
                 ...prev,
-                health: Math.max(0, prev.health - 8),
+                health: payload.p2Health ?? Math.max(0, prev.health - 8),
                 currentAction: "hit",
               }));
 
@@ -270,6 +277,7 @@ export default function App() {
                 setP2((p) => ({ ...p, currentAction: "idle" }));
               }, 400);
             })
+
             .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
               audio.playEmoteSound(payload.action);
               setP2((prev) => ({ ...prev, currentAction: payload.action }));
@@ -595,13 +603,23 @@ export default function App() {
         punchTypes[Math.floor(Math.random() * punchTypes.length)];
 
       const newScore = p1.score + earnedScore;
+      const newP2Health = Math.max(0, p2.health - 8);
 
-      // Broadcast Pukulan ke Lawan via Supabase Realtime
+      // ✅ Generate soal baru yang SAMA untuk dikirim ke lawan
+      const nextQ = MathGenerator.generateQuestion(category);
+
+      // ✅ Broadcast Payload Lengkap ke Lawan via Supabase Realtime
       if (gameChannelRef.current) {
         gameChannelRef.current.send({
           type: "broadcast",
           event: "PLAYER_ATTACK",
-          payload: { punchType: randomPunch, earnedScore },
+          payload: {
+            punchType: randomPunch,
+            earnedScore,
+            totalScore: newScore, // Total skor P1
+            p2Health: newP2Health, // Sisa HP P2 setelah dipukul
+            nextQuestion: nextQ, // Soal baru hasil sinkronisasi
+          },
         });
       }
 
@@ -614,7 +632,7 @@ export default function App() {
 
       setP2((prev) => ({
         ...prev,
-        health: Math.max(0, prev.health - 8),
+        health: newP2Health,
         currentAction: "hit",
       }));
 
@@ -635,7 +653,8 @@ export default function App() {
         setP2((p) => ({ ...p, currentAction: "idle" }));
       }, 400);
 
-      nextQuestion();
+      // Set soal baru secara lokal
+      setCurrentQuestion(nextQ);
     } else {
       audio.playWrong();
       setWrongCount(newWrong);
