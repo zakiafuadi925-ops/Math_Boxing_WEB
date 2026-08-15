@@ -462,9 +462,14 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             />
           ) : (
             <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 via-indigo-500 to-amber-400 flex items-center justify-center font-arcade font-bold text-white text-xs shadow border border-blue-400/50">
-              {currentUser
-                ? currentUser.displayName.charAt(0).toUpperCase()
-                : "G"}
+              {(
+                currentUser?.displayName ||
+                currentUser?.name ||
+                currentUser?.email ||
+                "G"
+              )
+                .charAt(0)
+                .toUpperCase()}
             </div>
           )}
           <div>
