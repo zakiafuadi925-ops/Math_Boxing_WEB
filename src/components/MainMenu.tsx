@@ -1490,6 +1490,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               </button>
               <button
                 onClick={() => {
+                  console.log("Tombol Private Room diklik!");
                   if (roomInput.trim()) {
                     audio.playClick();
                     setShowPrivateModal(false);

@@ -365,6 +365,12 @@ export default function App() {
     diff?: "easy" | "normal" | "hard",
     code?: string,
   ) => {
+    console.log("🎮 Start Game dipanggil:", {
+      selectedMode,
+      selectedCat,
+      diff,
+      code,
+    });
     setMode(selectedMode);
     setCategory(selectedCat);
     if (diff) setAiDifficulty(diff);
