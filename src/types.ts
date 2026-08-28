@@ -7,6 +7,8 @@ export type QuestionCategory =
   | "geometry"
   | "all";
 
+export type GameDuration = 60 | 300 | 600; // in seconds: 1 min, 5 min, 10 min
+
 export interface MathQuestion {
   id: string;
   category: QuestionCategory;
@@ -60,12 +62,22 @@ export interface AnswerHistoryPoint {
   score: number;
 }
 
-// Buka src/types.ts atau tempat interface modal didefinisikan
 export interface MatchmakingModalProps {
   mode: GameMode;
   roomCode?: string;
+  duration?: GameDuration;
+  category?: QuestionCategory;
+  playerName?: string;
+  selectedSkinId?: string;
   onCancel: () => void;
-  onMatchFound: (roomData?: { roomId: string }) => void; // Tambahkan roomData
+  onMatchFound: (roomData?: {
+    roomId: string;
+    duration?: GameDuration;
+    category?: QuestionCategory;
+    initialQuestion?: MathQuestion;
+    opponentName?: string;
+  }) => void;
+  onSwitchToBot?: () => void;
 }
 
 export interface MatchRecord {
@@ -77,6 +89,7 @@ export interface MatchRecord {
   result: "win" | "loss" | "draw";
   category: QuestionCategory;
   mode: GameMode;
+  duration?: GameDuration;
   accuracy?: number;
   totalAnswered?: number;
   correctCount?: number;
@@ -90,6 +103,7 @@ export interface MatchRoom {
   currentQuestion: MathQuestion;
   questionVersion: number;
   timeRemaining: number;
+  duration: GameDuration;
   p1: PlayerState;
   p2: PlayerState;
 }

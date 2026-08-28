@@ -7,6 +7,7 @@ import {
   MathQuestion,
   MatchRecord,
   AnswerHistoryPoint,
+  GameDuration,
 } from "./types";
 import { MathGenerator } from "./utils/mathGenerator";
 import { audio } from "./utils/audio";
@@ -38,6 +39,29 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState<string>("");
   const [playerName, setPlayerName] = useState<string>("Player 1");
   const [currentUser, setCurrentUser] = useState<PlayerProfile | null>(null);
+
+  // Match Duration Preference (Default to 300s = 5 minutes for children friendliness)
+  const [selectedDuration, setSelectedDuration] = useState<GameDuration>(() => {
+    try {
+      const saved = localStorage.getItem("mb_preferred_duration");
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (parsed === 60 || parsed === 300 || parsed === 600) {
+          return parsed as GameDuration;
+        }
+      }
+    } catch (e) {}
+    return 300;
+  });
+
+  const [activeDuration, setActiveDuration] = useState<GameDuration>(300);
+
+  const handleSelectDuration = (dur: GameDuration) => {
+    setSelectedDuration(dur);
+    try {
+      localStorage.setItem("mb_preferred_duration", dur.toString());
+    } catch (e) {}
+  };
 
   // Realtime Channel Ref
   const gameChannelRef = useRef<RealtimeChannel | null>(null);
@@ -177,6 +201,13 @@ export default function App() {
   const aiIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const matchTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Helper to format countdown timer (e.g. 5:00, 0:45)
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
+  };
+
   const nextQuestion = useCallback(() => {
     const q = MathGenerator.generateQuestion(category);
     setCurrentQuestion(q);
@@ -189,14 +220,19 @@ export default function App() {
       roomId?: string;
       initialQuestion?: MathQuestion;
       opponentName?: string;
+      duration?: GameDuration;
+      category?: QuestionCategory;
     }) => {
       console.log("--> startMatch dipanggil dengan roomData:", roomData);
 
       if (matchTimerRef.current) clearInterval(matchTimerRef.current);
       if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
 
+      const matchDur = roomData?.duration || selectedDuration || 300;
+      setActiveDuration(matchDur);
+      setTimeRemaining(matchDur);
+
       audio.playBell();
-      setTimeRemaining(60);
       setTotalAnswered(0);
       setCorrectCount(0);
       setWrongCount(0);
@@ -206,6 +242,10 @@ export default function App() {
       setAnswerHistory([]);
       setRematchStatus("idle");
       setOpponentLeft(false);
+
+      if (roomData?.category) {
+        setCategory(roomData.category);
+      }
 
       const activeSkin =
         BOXER_SKINS.find((s) => s.id === selectedSkinId) || BOXER_SKINS[0];
@@ -370,22 +410,26 @@ export default function App() {
     selectedCat: QuestionCategory,
     diff?: "easy" | "normal" | "hard",
     code?: string,
+    duration?: GameDuration,
   ) => {
     console.log("🎮 Start Game dipanggil:", {
       selectedMode,
       selectedCat,
       diff,
       code,
+      duration,
     });
     setMode(selectedMode);
     setCategory(selectedCat);
     if (diff) setAiDifficulty(diff);
     if (code) setRoomCode(code);
+    const dur = duration || selectedDuration;
+    setSelectedDuration(dur);
 
     if (selectedMode === "quick_match" || selectedMode === "private_room") {
       setStage("matchmaking");
     } else {
-      startMatch();
+      startMatch({ duration: dur });
     }
   };
 
@@ -534,7 +578,7 @@ export default function App() {
     const newCorrect = isCorrect ? correctCount + 1 : correctCount;
     const newWrong = !isCorrect ? wrongCount + 1 : wrongCount;
     const accuracy = Math.round((newCorrect / newTotal) * 100);
-    const timeSeconds = 60 - timeRemaining;
+    const timeSeconds = activeDuration - timeRemaining;
 
     setTotalAnswered(newTotal);
 
@@ -765,6 +809,8 @@ export default function App() {
           onStartGame={handleStartGame}
           selectedCategory={category}
           onSelectCategory={setCategory}
+          selectedDuration={selectedDuration}
+          onSelectDuration={handleSelectDuration}
           playerName={playerName}
           onUpdatePlayerName={setPlayerName}
           lifetimeScore={lifetimeScore}
@@ -796,6 +842,8 @@ export default function App() {
         <MatchmakingModal
           mode={mode}
           roomCode={roomCode}
+          category={category}
+          duration={selectedDuration}
           onCancel={() => setStage("main_menu")}
           onMatchFound={(roomData) => startMatch(roomData)}
         />
@@ -828,13 +876,13 @@ export default function App() {
                 <Timer className="w-2.5 h-2.5 text-amber-400" /> WAKTU
               </span>
               <span
-                className={`font-arcade text-lg sm:text-xl font-black leading-none ${
-                  timeRemaining <= 10
+                className={`font-arcade text-base sm:text-lg font-black leading-none ${
+                  timeRemaining <= (activeDuration <= 60 ? 10 : 20)
                     ? "text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"
                     : "text-slate-100"
                 }`}
               >
-                {timeRemaining}s
+                {formatTimer(timeRemaining)}
               </span>
             </div>
 
@@ -902,6 +950,7 @@ export default function App() {
           correctCount={correctCount}
           wrongCount={wrongCount}
           highestCombo={highestCombo}
+          duration={activeDuration}
           answerHistory={answerHistory}
           isMultiplayer={mode === "quick_match" || mode === "private_room"}
           rematchStatus={rematchStatus}

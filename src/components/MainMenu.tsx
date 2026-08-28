@@ -37,7 +37,7 @@ import {
   Bar,
   Cell,
 } from "recharts";
-import { GameMode, QuestionCategory, MatchRecord } from "../types";
+import { GameMode, QuestionCategory, MatchRecord, GameDuration } from "../types";
 import { audio } from "../utils/audio";
 import { BOXER_SKINS, BoxerSkin } from "../utils/skins";
 import { DailyChallengeModal } from "./DailyChallengeModal";
@@ -47,7 +47,7 @@ import {
 } from "../utils/dailyChallenges";
 import { LoginModal } from "./LoginModal";
 import { PlayerProfile } from "../lib/supabase";
-import { User, LogIn, ShieldCheck } from "lucide-react";
+import { User, LogIn, ShieldCheck, Timer } from "lucide-react";
 
 interface MainMenuProps {
   onStartGame: (
@@ -55,9 +55,12 @@ interface MainMenuProps {
     category: QuestionCategory,
     aiDiff?: "easy" | "normal" | "hard",
     roomCode?: string,
+    duration?: GameDuration,
   ) => void;
   selectedCategory: QuestionCategory;
   onSelectCategory: (cat: QuestionCategory) => void;
+  selectedDuration: GameDuration;
+  onSelectDuration: (duration: GameDuration) => void;
   playerName: string;
   onUpdatePlayerName: (name: string) => void;
   lifetimeScore: number;
@@ -159,6 +162,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   onStartGame,
   selectedCategory,
   onSelectCategory,
+  selectedDuration,
+  onSelectDuration,
   playerName,
   onUpdatePlayerName,
   lifetimeScore,
@@ -647,7 +652,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           <button
             onClick={() => {
               audio.playClick();
-              onStartGame("quick_match", selectedCategory);
+              onStartGame("quick_match", selectedCategory, undefined, undefined, selectedDuration);
             }}
             className="w-full p-4 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 active:scale-[0.98] border-b-4 border-amber-700 rounded-2xl text-slate-950 flex items-center justify-between shadow-xl transition-all group"
           >
@@ -656,9 +661,14 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <Swords className="w-7 h-7 text-slate-950 group-hover:scale-110 transition" />
               </div>
               <div className="text-left">
-                <span className="font-arcade text-xl font-black block">
-                  QUICK MATCH ONLINE
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-arcade text-xl font-black block">
+                    QUICK MATCH ONLINE
+                  </span>
+                  <span className="text-[10px] font-bold bg-slate-950/80 text-amber-300 px-2 py-0.5 rounded-full font-mono">
+                    {selectedDuration === 60 ? "1 Menit" : selectedDuration === 300 ? "5 Menit" : "10 Menit"}
+                  </span>
+                </div>
                 <span className="text-xs font-bold text-slate-800">
                   Cari lawan cepat & adu speed math 1v1!
                 </span>
@@ -677,9 +687,14 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   <Bot className="w-6 h-6 text-blue-400" />
                 </div>
                 <div className="text-left">
-                  <span className="font-arcade text-lg text-slate-100 block">
-                    LATIHAN VS AI BOT
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-arcade text-lg text-slate-100 block">
+                      LATIHAN VS AI BOT
+                    </span>
+                    <span className="text-[10px] font-bold bg-slate-950 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30 font-mono">
+                      {selectedDuration === 60 ? "1 Min" : selectedDuration === 300 ? "5 Min" : "10 Min"}
+                    </span>
+                  </div>
                   <span className="text-xs text-slate-400">
                     Asah refleks hitung tanpa koneksi lawan
                   </span>
@@ -689,7 +704,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               <button
                 onClick={() => {
                   audio.playClick();
-                  onStartGame("practice", selectedCategory, aiDifficulty);
+                  onStartGame("practice", selectedCategory, aiDifficulty, undefined, selectedDuration);
                 }}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-arcade rounded-xl text-sm transition"
               >
@@ -743,6 +758,93 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               CODE ROOM
             </span>
           </button>
+
+          {/* Duration Selector Card */}
+          <div className="w-full bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4 my-2 shadow-lg">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <Timer className="w-4 h-4 text-amber-400" />
+                PILIH WAKTU PERTANDINGAN:
+              </h3>
+              <span className="text-[10px] bg-amber-500/10 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
+                {selectedDuration === 60
+                  ? "1 Menit"
+                  : selectedDuration === 300
+                    ? "5 Menit (Rekomendasi Anak)"
+                    : "10 Menit (Santai)"}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              {[
+                {
+                  id: 60 as GameDuration,
+                  title: "1 Menit",
+                  sub: "⚡ Mode Kilat",
+                  badge: "Refleks Cepat",
+                  detail: "Uji kecepatan respon kilat",
+                  color: "from-amber-500/20 to-yellow-500/10",
+                  activeBorder: "border-amber-500 text-amber-300",
+                },
+                {
+                  id: 300 as GameDuration,
+                  title: "5 Menit",
+                  sub: "⭐ Standar Anak",
+                  badge: "Paling Pas",
+                  detail: "Waktu tenang & ramah otak anak",
+                  color: "from-emerald-500/20 to-teal-500/10",
+                  activeBorder: "border-emerald-500 text-emerald-300",
+                },
+                {
+                  id: 600 as GameDuration,
+                  title: "10 Menit",
+                  sub: "🏆 Marathon Fokus",
+                  badge: "Santai",
+                  detail: "Sesi belajar tanpa buru-buru",
+                  color: "from-blue-500/20 to-indigo-500/10",
+                  activeBorder: "border-blue-500 text-blue-300",
+                },
+              ].map((item) => {
+                const isSelected = selectedDuration === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      audio.playClick();
+                      onSelectDuration(item.id);
+                    }}
+                    className={`p-3 rounded-2xl border-2 text-left transition relative flex flex-col justify-between overflow-hidden group ${
+                      isSelected
+                        ? `bg-gradient-to-br ${item.color} ${item.activeBorder} shadow-md scale-[1.02]`
+                        : "bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span className="font-arcade text-base font-black">
+                        {item.title}
+                      </span>
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md ${
+                          isSelected
+                            ? "bg-slate-950/90 text-amber-300 border border-amber-500/40"
+                            : "bg-slate-900 text-slate-500"
+                        }`}
+                      >
+                        {item.badge}
+                      </span>
+                    </div>
+                    <span className="text-xs font-bold block mb-0.5">
+                      {item.sub}
+                    </span>
+                    <span className="text-[10px] text-slate-400 leading-tight">
+                      {item.detail}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Question Category Filter Picker */}
           <div className="w-full bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4 my-2">
@@ -1446,22 +1548,24 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
       {/* Private Room Modal */}
       {showPrivateModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-900 border-2 border-slate-800 rounded-2xl p-6 w-full max-w-sm text-center shadow-2xl">
-            <h3 className="font-arcade text-xl text-amber-400 mb-2">
-              MASUKKAN KODE KAMAR
-            </h3>
-            <p className="text-xs text-slate-400 mb-4">
-              Buat kode baru atau masukkan kode temanmu
-            </p>
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-slate-900 border-2 border-slate-800 rounded-3xl p-6 w-full max-w-sm text-center shadow-2xl space-y-4">
+            <div>
+              <h3 className="font-arcade text-xl text-amber-400 mb-1">
+                KODE KAMAR PERTANDINGAN
+              </h3>
+              <p className="text-xs text-slate-400">
+                Buat kode baru atau masukkan kode temanmu
+              </p>
+            </div>
 
-            <div className="relative mb-3">
+            <div className="relative">
               <input
                 type="text"
                 value={roomInput}
                 onChange={(e) => setRoomInput(e.target.value.toUpperCase())}
-                placeholder="CONTOH: BOX123"
-                className="w-full bg-slate-950 border-2 border-slate-700 focus:border-amber-400 rounded-xl p-3 text-center font-arcade text-xl text-amber-300 outline-none uppercase"
+                placeholder="CONTOH: BOX-123"
+                className="w-full bg-slate-950 border-2 border-slate-700 focus:border-amber-400 rounded-xl p-3 text-center font-arcade text-xl text-amber-300 outline-none uppercase tracking-wider"
               />
             </div>
 
@@ -1476,21 +1580,46 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   prefixes[Math.floor(Math.random() * prefixes.length)];
                 setRoomInput(`${prefix}-${randomNum}`);
               }}
-              className="w-full mb-4 py-1.5 px-3 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-500/50 rounded-lg text-xs font-bold text-purple-300 flex items-center justify-center gap-1.5 transition active:scale-95"
+              className="w-full py-1.5 px-3 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-500/50 rounded-xl text-xs font-bold text-purple-300 flex items-center justify-center gap-1.5 transition active:scale-95"
             >
               🎲 Buat Kode Otomatis (Acak)
             </button>
 
-            <div className="flex items-center gap-2">
+            {/* Duration Selector in Private Room */}
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-left">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5 flex items-center gap-1">
+                <Timer className="w-3 h-3 text-amber-400" /> DURASI PERTANDINGAN:
+              </span>
+              <div className="grid grid-cols-3 gap-1.5">
+                {([60, 300, 600] as GameDuration[]).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => {
+                      audio.playClick();
+                      onSelectDuration(d);
+                    }}
+                    className={`py-1.5 px-1 rounded-lg text-xs font-bold transition text-center ${
+                      selectedDuration === d
+                        ? "bg-amber-500 text-slate-950 font-black"
+                        : "bg-slate-900 text-slate-400 hover:bg-slate-800"
+                    }`}
+                  >
+                    {d === 60 ? "1 Min" : d === 300 ? "5 Min" : "10 Min"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 pt-1">
               <button
                 onClick={() => setShowPrivateModal(false)}
-                className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-sm"
+                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs transition"
               >
                 BATAL
               </button>
               <button
                 onClick={() => {
-                  console.log("Tombol Private Room diklik!");
                   if (roomInput.trim()) {
                     audio.playClick();
                     setShowPrivateModal(false);
@@ -1499,12 +1628,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                       selectedCategory,
                       undefined,
                       roomInput.trim(),
+                      selectedDuration,
                     );
                   }
                 }}
-                className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-arcade rounded-xl text-sm"
+                className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-arcade rounded-xl text-xs font-bold transition shadow-md"
               >
-                MASUK
+                MASUK RING
               </button>
             </div>
           </div>
@@ -1531,8 +1661,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               <li className="flex items-start gap-2">
                 <span className="font-arcade text-amber-400">1.</span>
                 <span>
-                  <b>Durasi 60 Detik:</b> Pertarungan berjalan cepat selama 1
-                  menit (Sudden Death).
+                  <b>Pilihan Waktu (1, 5, atau 10 Menit):</b> Pilih durasi waktu yang nyaman untukmu (1 menit kilat, 5 menit santai ramah anak, atau 10 menit marathon fokus).
                 </span>
               </li>
               <li className="flex items-start gap-2">

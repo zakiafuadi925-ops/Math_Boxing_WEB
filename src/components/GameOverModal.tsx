@@ -11,7 +11,7 @@ import {
   CartesianGrid,
   Legend,
 } from 'recharts';
-import { PlayerState, AnswerHistoryPoint, ActionType } from '../types';
+import { PlayerState, AnswerHistoryPoint, ActionType, GameDuration } from '../types';
 import { audio } from '../utils/audio';
 import { BoxerCanvas } from './BoxerCanvas';
 import { EmoteBar } from './EmoteBar';
@@ -23,6 +23,7 @@ interface GameOverModalProps {
   correctCount: number;
   wrongCount: number;
   highestCombo: number;
+  duration?: GameDuration;
   answerHistory?: AnswerHistoryPoint[];
   isMultiplayer?: boolean;
   rematchStatus?: 'idle' | 'requested_by_me' | 'requested_by_opponent';
@@ -38,6 +39,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   correctCount,
   wrongCount,
   highestCombo,
+  duration,
   answerHistory = [],
   isMultiplayer = false,
   rematchStatus = 'idle',
@@ -114,6 +116,12 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           <h2 className="font-arcade text-2xl sm:text-3xl text-amber-400 tracking-wider">
             TIME UP!
           </h2>
+
+          {duration && (
+            <div className="inline-block mt-0.5 mb-1 px-2.5 py-0.5 bg-slate-950/80 border border-amber-500/30 rounded-full text-[10px] font-bold text-amber-300">
+              ⏱️ Durasi Match: {duration === 60 ? "1 Menit (Kilat)" : duration === 300 ? "5 Menit (Standar)" : "10 Menit (Marathon)"}
+            </div>
+          )}
 
           <div className="mt-1 font-arcade text-lg sm:text-xl text-slate-100">
             {isDraw ? (
