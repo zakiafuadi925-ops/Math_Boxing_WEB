@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
-import { Trophy, RefreshCw, Home, Flame, CheckCircle, XCircle, TrendingUp, Activity } from 'lucide-react';
+import { Trophy, RefreshCw, Home, Flame, CheckCircle, XCircle, TrendingUp, Activity, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -24,6 +24,9 @@ interface GameOverModalProps {
   wrongCount: number;
   highestCombo: number;
   answerHistory?: AnswerHistoryPoint[];
+  isMultiplayer?: boolean;
+  rematchStatus?: 'idle' | 'requested_by_me' | 'requested_by_opponent';
+  opponentLeft?: boolean;
   onRematch: () => void;
   onExit: () => void;
 }
@@ -36,6 +39,9 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   wrongCount,
   highestCombo,
   answerHistory = [],
+  isMultiplayer = false,
+  rematchStatus = 'idle',
+  opponentLeft = false,
   onRematch,
   onExit,
 }) => {
@@ -257,8 +263,30 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           </div>
         </div>
 
+        {/* Multiplayer Status Banner */}
+        {isMultiplayer && (
+          <div className="my-2">
+            {opponentLeft ? (
+              <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400 text-xs flex items-center justify-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>Lawan telah meninggalkan match dan kembali ke Menu Utama.</span>
+              </div>
+            ) : rematchStatus === 'requested_by_opponent' ? (
+              <div className="p-2.5 bg-emerald-500/15 border border-emerald-500/40 rounded-xl text-emerald-400 text-xs flex items-center justify-center gap-2 animate-pulse">
+                <Sparkles className="w-4 h-4 shrink-0 text-emerald-300" />
+                <span className="font-semibold">⚔️ Lawan mengajak Rematch! Klik &quot;Terima Rematch&quot; untuk bertarung lagi!</span>
+              </div>
+            ) : rematchStatus === 'requested_by_me' ? (
+              <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-300 text-xs flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 shrink-0 animate-spin text-amber-400" />
+                <span>Menunggu persetujuan lawan untuk rematch...</span>
+              </div>
+            ) : null}
+          </div>
+        )}
+
         {/* Control Action Buttons */}
-        <div className="flex items-center gap-3 mt-4">
+        <div className="flex items-center gap-3 mt-3">
           <button
             onClick={() => {
               audio.playClick();
@@ -272,13 +300,37 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
 
           <button
             onClick={() => {
+              if (opponentLeft) return;
               audio.playClick();
               onRematch();
             }}
-            className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-arcade rounded-xl text-xs sm:text-sm transition shadow-lg flex items-center justify-center gap-1.5 glow-gold"
+            disabled={opponentLeft}
+            className={`flex-1 py-3 font-arcade rounded-xl text-xs sm:text-sm transition shadow-lg flex items-center justify-center gap-1.5 ${
+              opponentLeft
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                : rematchStatus === 'requested_by_opponent'
+                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 glow-gold animate-bounce ring-2 ring-emerald-300'
+                : rematchStatus === 'requested_by_me'
+                ? 'bg-amber-500/80 hover:bg-amber-500 text-slate-950 glow-gold'
+                : 'bg-amber-500 hover:bg-amber-400 text-slate-950 glow-gold'
+            }`}
           >
-            <RefreshCw className="w-4 h-4" />
-            REMATCH
+            {rematchStatus === 'requested_by_me' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                MENUNGGU LAWAN...
+              </>
+            ) : rematchStatus === 'requested_by_opponent' ? (
+              <>
+                <Sparkles className="w-4 h-4" />
+                TERIMA REMATCH
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4" />
+                REMATCH
+              </>
+            )}
           </button>
         </div>
       </div>

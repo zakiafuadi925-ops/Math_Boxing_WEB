@@ -1,10 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { PlayerState } from '../types';
+import { Crown, Flame, Sparkles, Zap } from 'lucide-react';
+import { getComboMultiplier } from './ComboTracker';
 
 interface BoxerCanvasProps {
   p1: PlayerState;
   p2: PlayerState;
   lastHitBy?: 'p1' | 'p2' | null;
+  onTriggerEmote?: (emote: 'taunt_crown' | 'taunt_flex' | 'taunt_dance' | 'taunt_shuffle') => void;
+  combo?: number;
+  lastBonusPoints?: number | null;
 }
 
 export interface DamagePopup {
@@ -19,7 +24,14 @@ export interface DamagePopup {
   target: 'p1' | 'p2';
 }
 
-export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({ p1, p2, lastHitBy }) => {
+export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
+  p1,
+  p2,
+  lastHitBy,
+  onTriggerEmote,
+  combo = 0,
+  lastBonusPoints,
+}) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevP1Score = useRef(p1.score);
   const prevP2Score = useRef(p2.score);
@@ -29,6 +41,8 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({ p1, p2, lastHitBy }) =
   const [popups, setPopups] = useState<DamagePopup[]>([]);
   const [p1HealthPulse, setP1HealthPulse] = useState(false);
   const [p2HealthPulse, setP2HealthPulse] = useState(false);
+
+  const comboInfo = getComboMultiplier(combo);
 
   // Health damage pulse triggers
   useEffect(() => {
@@ -226,23 +240,23 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({ p1, p2, lastHitBy }) =
   }, [p1, p2, lastHitBy]);
 
   return (
-    <div className="relative w-full aspect-[16/9] max-h-[360px] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border-2 border-slate-800">
+    <div className="relative w-full flex-1 min-h-[150px] max-h-[250px] sm:max-h-[320px] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border-2 border-slate-800 flex items-center justify-center">
       {/* Top Left P1 Arcade Health Bar HUD */}
-      <div className="absolute top-2 left-2 sm:top-3 sm:left-3 z-30 pointer-events-none flex flex-col gap-1 w-28 sm:w-44 select-none">
-        <div className="flex items-center justify-between text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-200">
-          <span className="flex items-center gap-1 font-arcade">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block shadow-sm" />
-            {p1.name}
+      <div className="absolute top-1.5 left-2 sm:top-2.5 sm:left-3 z-30 pointer-events-none flex flex-col gap-0.5 w-24 sm:w-36 select-none">
+        <div className="flex items-center justify-between text-[9px] sm:text-xs font-black uppercase tracking-wider text-slate-200">
+          <span className="flex items-center gap-1 font-arcade truncate max-w-[65px] sm:max-w-[100px]">
+            <span className="w-2 h-2 rounded-full bg-red-500 inline-block shadow-sm shrink-0" />
+            <span className="truncate">{p1.name}</span>
           </span>
           <span className={`font-arcade font-bold transition-all ${p1HealthPulse ? 'text-red-400 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(239,68,68,1)]' : 'text-slate-300'}`}>
-            {p1.health}% HP
+            {p1.health}%
           </span>
         </div>
 
         <div
-          className={`w-full h-3.5 bg-slate-950/90 rounded-full border-2 p-0.5 transition-all duration-300 backdrop-blur-sm ${
+          className={`w-full h-2.5 sm:h-3.5 bg-slate-950/90 rounded-full border p-0.5 transition-all duration-300 backdrop-blur-sm ${
             p1HealthPulse
-              ? 'border-red-500 bg-red-950/90 shadow-[0_0_24px_rgba(239,68,68,1)] animate-pulse scale-105 ring-2 ring-red-400'
+              ? 'border-red-500 bg-red-950/90 shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse scale-105 ring-1 ring-red-400'
               : 'border-slate-700/80 shadow-md'
           }`}
         >
@@ -259,22 +273,40 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({ p1, p2, lastHitBy }) =
         </div>
       </div>
 
+      {/* Center Dynamic Combo & Multiplier Banner */}
+      {combo > 0 && (
+        <div className="absolute top-1.5 sm:top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex items-center gap-1.5 animate-bounce">
+          <div className="px-2 py-0.5 rounded-full bg-slate-950/90 border border-amber-500/60 backdrop-blur-md shadow-lg flex items-center gap-1 text-[10px] sm:text-xs font-arcade font-bold text-amber-300">
+            <Flame className="w-3 h-3 text-amber-400 fill-amber-400" />
+            <span>{combo}x COMBO</span>
+            {comboInfo.multiplier > 1 && (
+              <span className="text-yellow-300 font-extrabold">({comboInfo.multiplier}x PTS)</span>
+            )}
+          </div>
+          {lastBonusPoints && lastBonusPoints > 0 && (
+            <div className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-arcade text-[9px] font-black shadow-md">
+              +{lastBonusPoints} BONUS
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Top Right P2 Arcade Health Bar HUD */}
-      <div className="absolute top-2 right-2 sm:top-3 sm:right-3 z-30 pointer-events-none flex flex-col items-end gap-1 w-28 sm:w-44 select-none">
-        <div className="flex items-center justify-between w-full text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-200">
+      <div className="absolute top-1.5 right-2 sm:top-2.5 sm:right-3 z-30 pointer-events-none flex flex-col items-end gap-0.5 w-24 sm:w-36 select-none">
+        <div className="flex items-center justify-between w-full text-[9px] sm:text-xs font-black uppercase tracking-wider text-slate-200">
           <span className={`font-arcade font-bold transition-all ${p2HealthPulse ? 'text-red-400 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(239,68,68,1)]' : 'text-slate-300'}`}>
-            {p2.health}% HP
+            {p2.health}%
           </span>
-          <span className="flex items-center gap-1 font-arcade">
-            {p2.name}
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block shadow-sm" />
+          <span className="flex items-center gap-1 font-arcade truncate max-w-[65px] sm:max-w-[100px] justify-end">
+            <span className="truncate">{p2.name}</span>
+            <span className="w-2 h-2 rounded-full bg-blue-500 inline-block shadow-sm shrink-0" />
           </span>
         </div>
 
         <div
-          className={`w-full h-3.5 bg-slate-950/90 rounded-full border-2 p-0.5 transition-all duration-300 backdrop-blur-sm ${
+          className={`w-full h-2.5 sm:h-3.5 bg-slate-950/90 rounded-full border p-0.5 transition-all duration-300 backdrop-blur-sm ${
             p2HealthPulse
-              ? 'border-red-500 bg-red-950/90 shadow-[0_0_24px_rgba(239,68,68,1)] animate-pulse scale-105 ring-2 ring-red-400'
+              ? 'border-red-500 bg-red-950/90 shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse scale-105 ring-1 ring-red-400'
               : 'border-slate-700/80 shadow-md'
           }`}
         >
@@ -298,6 +330,31 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({ p1, p2, lastHitBy }) =
         className="w-full h-full object-cover"
       />
 
+      {/* Bottom Floating Micro Emote Trigger Buttons */}
+      {onTriggerEmote && (
+        <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 bg-slate-950/80 p-1 rounded-full border border-slate-700/60 backdrop-blur-sm shadow-md">
+          {[
+            { id: 'taunt_crown' as const, emoji: '👑', label: 'Juara' },
+            { id: 'taunt_flex' as const, emoji: '💪', label: 'Otot' },
+            { id: 'taunt_dance' as const, emoji: '🕺', label: 'Joget' },
+            { id: 'taunt_shuffle' as const, emoji: '⚡', label: 'Kilat' },
+          ].map((em) => (
+            <button
+              key={em.id}
+              onClick={() => onTriggerEmote(em.id)}
+              className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full text-xs flex items-center justify-center transition-all duration-100 active:scale-90 ${
+                p1.currentAction === em.id
+                  ? 'bg-amber-500 text-slate-950 scale-110 shadow-md ring-1 ring-amber-300 font-bold'
+                  : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700'
+              }`}
+              title={em.label}
+            >
+              {em.emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Floating Damage Text Overlay */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
         {popups.map((popup) => (
@@ -308,7 +365,7 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({ p1, p2, lastHitBy }) =
           >
             {/* Visual Starburst Impact Background Ring */}
             <div
-              className={`absolute w-16 h-16 rounded-full border-2 border-dashed ${
+              className={`absolute w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-dashed ${
                 popup.isCritical
                   ? 'border-amber-400 bg-amber-400/20'
                   : popup.target === 'p1'
@@ -318,14 +375,14 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({ p1, p2, lastHitBy }) =
             />
 
             {/* Main Floating Damage / Score Text */}
-            <div className="flex items-center gap-1 font-arcade text-3xl sm:text-4xl font-black tracking-tight whitespace-nowrap">
+            <div className="flex items-center gap-1 font-arcade text-2xl sm:text-4xl font-black tracking-tight whitespace-nowrap">
               <span className={popup.colorClass}>{popup.scoreText}</span>
             </div>
 
             {/* Subtext Badge (Combo / Punch Action) */}
             {popup.subtext && (
               <div
-                className={`mt-0.5 px-2.5 py-0.5 rounded-full border text-[10px] sm:text-xs font-arcade font-bold shadow-xl backdrop-blur-sm ${popup.badgeBg}`}
+                className={`mt-0.5 px-2 py-0.5 rounded-full border text-[9px] sm:text-xs font-arcade font-bold shadow-xl backdrop-blur-sm ${popup.badgeBg}`}
               >
                 {popup.subtext}
               </div>

@@ -140,6 +140,10 @@ export default function App() {
   const [highestCombo, setHighestCombo] = useState<number>(0);
   const [lastBonusPoints, setLastBonusPoints] = useState<number | null>(null);
   const [answerHistory, setAnswerHistory] = useState<AnswerHistoryPoint[]>([]);
+  const [rematchStatus, setRematchStatus] = useState<
+    "idle" | "requested_by_me" | "requested_by_opponent"
+  >("idle");
+  const [opponentLeft, setOpponentLeft] = useState<boolean>(false);
 
   // Screen Shake
   const [shakeClass, setShakeClass] = useState<string>("");
@@ -176,13 +180,20 @@ export default function App() {
   const nextQuestion = useCallback(() => {
     const q = MathGenerator.generateQuestion(category);
     setCurrentQuestion(q);
+    return q;
   }, [category]);
 
   // Start Match logic
-  // Start Match logic
   const startMatch = useCallback(
-    (roomData?: { roomId?: string }) => {
+    (roomData?: {
+      roomId?: string;
+      initialQuestion?: MathQuestion;
+      opponentName?: string;
+    }) => {
       console.log("--> startMatch dipanggil dengan roomData:", roomData);
+
+      if (matchTimerRef.current) clearInterval(matchTimerRef.current);
+      if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
 
       audio.playBell();
       setTimeRemaining(60);
@@ -193,6 +204,8 @@ export default function App() {
       setLastBonusPoints(null);
       setLastHitBy(null);
       setAnswerHistory([]);
+      setRematchStatus("idle");
+      setOpponentLeft(false);
 
       const activeSkin =
         BOXER_SKINS.find((s) => s.id === selectedSkinId) || BOXER_SKINS[0];
@@ -213,7 +226,12 @@ export default function App() {
       setP2((prev) => ({
         ...prev,
         name: isMultiplayer
-          ? "Menunggu Lawan..."
+          ? roomData?.opponentName ||
+            (prev.name &&
+            prev.name !== "Menunggu Lawan..." &&
+            !prev.name.startsWith("Bot")
+              ? prev.name
+              : "Lawan")
           : `Bot (${aiDifficulty.toUpperCase()})`,
         score: 0,
         health: 100,
@@ -224,129 +242,58 @@ export default function App() {
         currentAction: "idle",
       }));
 
-      // LANGKAH PENTING: Ubah stage KE "in_game" TERLEBIH DAHULU agar modal langsung tertutup!
-      // Ubah stage ke "in_game" agar modal matchmaking langsung tertutup
+      // Ubah stage ke "in_game" agar modal matchmaking/game over langsung tertutup
       setStage("in_game");
 
-      // Inisialisasi Multiplayer Realtime Broadcast dengan jeda mikro agar channel lama bersih
-      if (isMultiplayer && roomData?.roomId) {
-        setActiveRoomId(roomData.roomId);
+      const targetRoomId = roomData?.roomId || activeRoomId;
 
-        // Bersihkan channel sebelumnya jika ada
-        // 1. Unsubscribe/remove channel lama jika ada
-        if (gameChannelRef.current) {
-          supabase.removeChannel(gameChannelRef.current);
-          gameChannelRef.current = null;
+      // Inisialisasi / Reuse Multiplayer Realtime Broadcast
+      if (isMultiplayer && targetRoomId) {
+        setActiveRoomId(targetRoomId);
+
+        // Jika belum ada channel atau room berbeda, buat channel baru
+        let gameChannel = gameChannelRef.current;
+        if (!gameChannel || (gameChannel as any).topic !== `game_${targetRoomId}`) {
+          if (gameChannel) {
+            supabase.removeChannel(gameChannel);
+          }
+
+          gameChannel = supabase.channel(`game_${targetRoomId}`, {
+            config: {
+              broadcast: { self: false },
+            },
+          });
+          gameChannelRef.current = gameChannel;
         }
 
-        setTimeout(() => {
-          console.log(
-            "--> Inisialisasi Game Realtime Channel:",
-            roomData.roomId,
-          );
-          const channel = supabase.channel(`game_${roomData.roomId}`);
-
-          // Dengarkan serangan/pukulan lawan
-          channel
-            .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
-              audio.playPunchHit();
-              setLastHitBy("p2");
-              triggerScreenShake("light");
-
-              // 1. Sync Soal Baru yang dikirim oleh pemukul
-              if (payload.nextQuestion) {
-                setCurrentQuestion(payload.nextQuestion);
-              }
-
-              // 2. Set Total Skor Lawan secara Presisi (Bukan Penambahan Lokal)
-              setP2((prev) => ({
-                ...prev,
-                score: payload.totalScore ?? prev.score + payload.earnedScore,
-                currentAction: payload.punchType,
-              }));
-
-              // 3. Set Sisa HP Kita (P1) dari Payload Lawan
-              setP1((prev) => ({
-                ...prev,
-                health: payload.p2Health ?? Math.max(0, prev.health - 8),
-                currentAction: "hit",
-              }));
-
-              setTimeout(() => {
-                setP1((p) => ({ ...p, currentAction: "idle" }));
-                setP2((p) => ({ ...p, currentAction: "idle" }));
-              }, 400);
-            })
-
-            .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
-              audio.playEmoteSound(payload.action);
-              setP2((prev) => ({ ...prev, currentAction: payload.action }));
-              setTimeout(() => {
-                setP2((p) =>
-                  p.currentAction === payload.action
-                    ? { ...p, currentAction: "idle" }
-                    : p,
-                );
-              }, 2000);
-            })
-            .subscribe();
-
-          gameChannelRef.current = channel;
-        }, 100);
-        // 2. Buat channel game baru
-        const gameChannel = supabase.channel(`game_${roomData.roomId}`, {
-          config: {
-            broadcast: { self: false },
-          },
-        });
-
-        // 3. Listen Event Broadcast
-        // 1. Kirim Data Profil Saat Terhubung ke Room
+        // 1. Dengarkan jika ada lawan bergabung
         gameChannel
           .on("broadcast", { event: "PLAYER_JOINED" }, ({ payload }) => {
-            // Saat lawan masuk, perbarui nama lawan secara spesifik
-            setP2((prev) => ({ ...prev, name: payload.playerName }));
-
-            // Jika kita adalah Host, kirim balik nama kita dan soal pertama
-            if (isHost) {
-              gameChannel.send({
-                type: "broadcast",
-                event: "HOST_INIT_GAME",
-                payload: {
-                  hostName: playerName,
-                  initialQuestion: currentQuestion,
-                },
-              });
+            if (payload?.playerName) {
+              setP2((prev) => ({ ...prev, name: payload.playerName }));
             }
           })
-          .on("broadcast", { event: "HOST_INIT_GAME" }, ({ payload }) => {
-            // Guest menerima nama Host dan soal yang sama
-            setP2((prev) => ({ ...prev, name: payload.hostName }));
-            if (payload.initialQuestion) {
-              setCurrentQuestion(payload.initialQuestion);
-            }
-          })
+          // 2. Dengarkan pukulan lawan
           .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
-            // Terima Aksi Pukulan & Soal Baru dari Lawan
             audio.playPunchHit();
             setLastHitBy("p2");
             triggerScreenShake("light");
 
-            // Set Soal Baru yang Dikirim oleh Lawan (Agar Soal Selalu Sama)
             if (payload.nextQuestion) {
               setCurrentQuestion(payload.nextQuestion);
             }
 
-            // Update Skor & HP Spesifik Sesuai Data Payload Real
             setP2((prev) => ({
               ...prev,
-              score: payload.totalScore,
-              currentAction: payload.punchType,
+              score:
+                payload.totalScore ??
+                prev.score + (payload.earnedScore || 2),
+              currentAction: payload.punchType || "jab",
             }));
 
             setP1((prev) => ({
               ...prev,
-              health: payload.opponentHealth,
+              health: payload.p2Health ?? Math.max(0, prev.health - 8),
               currentAction: "hit",
             }));
 
@@ -354,34 +301,60 @@ export default function App() {
               setP1((p) => ({ ...p, currentAction: "idle" }));
               setP2((p) => ({ ...p, currentAction: "idle" }));
             }, 400);
+          })
+          // 3. Dengarkan emote lawan
+          .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
+            audio.playEmoteSound(payload.action);
+            setP2((prev) => ({ ...prev, currentAction: payload.action }));
+            setTimeout(() => {
+              setP2((p) =>
+                p.currentAction === payload.action
+                  ? { ...p, currentAction: "idle" }
+                  : p,
+              );
+            }, 2000);
+          })
+          // 4. Dengarkan permintaan rematch lawan
+          .on("broadcast", { event: "PLAYER_REMATCH_REQUEST" }, ({ payload }) => {
+            audio.playBell();
+            setRematchStatus("requested_by_opponent");
+            if (payload?.playerName) {
+              setP2((prev) => ({ ...prev, name: payload.playerName }));
+            }
+          })
+          // 5. Dengarkan mulainya pertandingan rematch yang telah disetujui
+          .on("broadcast", { event: "GAME_REMATCH_START" }, ({ payload }) => {
+            console.log("🎮 Rematch disetujui lawan! Memulai game baru:", payload);
+            startMatch({
+              roomId: targetRoomId,
+              initialQuestion: payload?.initialQuestion,
+              opponentName: payload?.senderName,
+            });
+          })
+          // 6. Dengarkan jika lawan keluar
+          .on("broadcast", { event: "PLAYER_LEFT_MATCH" }, () => {
+            setOpponentLeft(true);
           });
 
-        // 4. Subscribe dengan penanganan status WebSocket
-        gameChannel.subscribe((status, err) => {
+        gameChannel.subscribe((status) => {
           if (status === "SUBSCRIBED") {
-            console.log("✅ WebSocket Terhubung ke Ring Pertarungan!");
-            gameChannel.send({
+            gameChannel?.send({
               type: "broadcast",
               event: "PLAYER_JOINED",
-              payload: { playerName: playerName }, // Mengirimkan username Supabase / Google
+              payload: { playerName: playerName || "Player 1" },
             });
           }
-          if (status === "CHANNEL_ERROR") {
-            console.error("❌ Gagal terhubung ke WebSocket Realtime:", err);
-          }
-          if (status === "TIMED_OUT") {
-            console.warn(
-              "⚠️ Koneksi WebSocket Timed Out. Mencoba menghubungkan ulang...",
-            );
-          }
         });
-
-        gameChannelRef.current = gameChannel;
       }
 
-      nextQuestion();
+      if (roomData?.initialQuestion) {
+        setCurrentQuestion(roomData.initialQuestion);
+      } else {
+        nextQuestion();
+      }
     },
     [
+      activeRoomId,
       category,
       mode,
       aiDifficulty,
@@ -442,9 +415,8 @@ export default function App() {
   // Update Lifetime Score & Match History
   useEffect(() => {
     if (stage === "game_over") {
-      if (gameChannelRef.current) {
-        supabase.removeChannel(gameChannelRef.current);
-      }
+      // NOTE: We do NOT remove gameChannelRef.current here so players can still communicate
+      // and trigger synchronized rematches from the GameOver screen.
 
       if (p1.score > 0) {
         setLifetimeScore((prevTotal) => {
@@ -713,12 +685,76 @@ export default function App() {
     [triggerScreenShake],
   );
 
+  const handleRematchClick = () => {
+    const isMultiplayer = mode === "quick_match" || mode === "private_room";
+
+    if (!isMultiplayer) {
+      startMatch();
+      return;
+    }
+
+    if (!gameChannelRef.current) {
+      if (mode === "private_room" && roomCode) {
+        setStage("matchmaking");
+      } else {
+        startMatch({ roomId: activeRoomId });
+      }
+      return;
+    }
+
+    if (rematchStatus === "requested_by_opponent") {
+      // Lawan sudah mengajak rematch, kita setujui dan mulai pertandingan bersama!
+      const firstQ = MathGenerator.generateQuestion(category);
+      try {
+        gameChannelRef.current.send({
+          type: "broadcast",
+          event: "GAME_REMATCH_START",
+          payload: {
+            initialQuestion: firstQ,
+            senderName: playerName || "Player 1",
+          },
+        });
+      } catch (e) {
+        console.error("Gagal mengirim GAME_REMATCH_START:", e);
+      }
+
+      startMatch({
+        roomId: activeRoomId,
+        initialQuestion: firstQ,
+      });
+    } else {
+      // Kita mengajak rematch ke lawan
+      setRematchStatus("requested_by_me");
+      try {
+        gameChannelRef.current.send({
+          type: "broadcast",
+          event: "PLAYER_REMATCH_REQUEST",
+          payload: {
+            playerName: playerName || "Player 1",
+          },
+        });
+      } catch (e) {
+        console.error("Gagal mengirim PLAYER_REMATCH_REQUEST:", e);
+      }
+    }
+  };
+
   const handleExitMatch = () => {
     if (matchTimerRef.current) clearInterval(matchTimerRef.current);
     if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
     if (gameChannelRef.current) {
+      try {
+        gameChannelRef.current.send({
+          type: "broadcast",
+          event: "PLAYER_LEFT_MATCH",
+          payload: { playerName },
+        });
+      } catch {}
       supabase.removeChannel(gameChannelRef.current);
+      gameChannelRef.current = null;
     }
+    setRematchStatus("idle");
+    setOpponentLeft(false);
     setStage("main_menu");
   };
 
@@ -767,31 +803,34 @@ export default function App() {
 
       {stage === "in_game" && currentQuestion && (
         <div
-          className={`w-full max-w-2xl mx-auto flex flex-col justify-between p-3 sm:p-4 min-h-screen gap-3 transition-transform ${shakeClass}`}
+          className={`w-full max-w-lg mx-auto h-[100dvh] max-h-[100dvh] flex flex-col justify-between p-1.5 sm:p-2.5 overflow-hidden select-none relative gap-1 sm:gap-1.5 transition-transform ${shakeClass}`}
         >
-          <div className="bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-3 flex items-center justify-between shadow-xl">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-red-500 flex items-center justify-center font-arcade font-bold text-xs text-slate-950">
+          {/* 1. Compact Arcade Combat Header */}
+          <div className="bg-slate-900/95 border border-slate-800 rounded-xl px-2.5 py-1 sm:py-1.5 flex items-center justify-between shadow-lg shrink-0">
+            {/* P1 Score & Avatar */}
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-red-500 flex items-center justify-center font-arcade font-black text-xs text-slate-950 shadow-sm shrink-0">
                 P1
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                <span className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-bold block leading-none truncate max-w-[70px] sm:max-w-[100px]">
                   {p1.name}
                 </span>
-                <span className="font-arcade text-xl sm:text-2xl text-amber-400 font-bold">
-                  {p1.score} PTS
+                <span className="font-arcade text-lg sm:text-xl text-amber-400 font-bold leading-tight">
+                  {p1.score} <span className="text-[10px] text-amber-300">PTS</span>
                 </span>
               </div>
             </div>
 
-            <div className="flex flex-col items-center px-3 py-1 bg-slate-950 border border-slate-800 rounded-xl">
-              <span className="text-[10px] text-slate-400 font-bold flex items-center gap-1 uppercase">
-                <Timer className="w-3 h-3 text-amber-400" /> TIMER
+            {/* Match Timer */}
+            <div className="flex flex-col items-center px-2.5 py-0.5 bg-slate-950 border border-slate-800 rounded-lg shadow-inner">
+              <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold flex items-center gap-1 uppercase tracking-wider">
+                <Timer className="w-2.5 h-2.5 text-amber-400" /> WAKTU
               </span>
               <span
-                className={`font-arcade text-2xl font-black ${
+                className={`font-arcade text-lg sm:text-xl font-black leading-none ${
                   timeRemaining <= 10
-                    ? "text-red-500 animate-pulse"
+                    ? "text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"
                     : "text-slate-100"
                 }`}
               >
@@ -799,43 +838,57 @@ export default function App() {
               </span>
             </div>
 
-            <div className="flex items-center gap-2 text-right">
+            {/* P2 Score & Avatar */}
+            <div className="flex items-center gap-1.5 sm:gap-2 text-right">
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                <span className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-bold block leading-none truncate max-w-[70px] sm:max-w-[100px]">
                   {p2.name}
                 </span>
-                <span className="font-arcade text-xl sm:text-2xl text-blue-400 font-bold">
-                  {p2.score} PTS
+                <span className="font-arcade text-lg sm:text-xl text-blue-400 font-bold leading-tight">
+                  {p2.score} <span className="text-[10px] text-blue-300">PTS</span>
                 </span>
               </div>
-              <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center font-arcade font-bold text-xs text-slate-950">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-blue-500 flex items-center justify-center font-arcade font-black text-xs text-slate-950 shadow-sm shrink-0">
                 P2
               </div>
             </div>
           </div>
 
-          <ComboTracker combo={p1.combo} lastBonusPoints={lastBonusPoints} />
-          <BoxerCanvas p1={p1} p2={p2} lastHitBy={lastHitBy} />
-          <EmoteBar
+          {/* 2. Real-Time Boxing Ring Stage with Integrated Emotes & Combos */}
+          <ComboTracker combo={p1.combo} lastBonusPoints={lastBonusPoints} compact={true} />
+          <BoxerCanvas
+            p1={p1}
+            p2={p2}
+            lastHitBy={lastHitBy}
             onTriggerEmote={handleTriggerEmote}
-            currentAction={p1.currentAction}
-          />
-          <QuestionCard question={currentQuestion} />
-          <Numpad
-            onSubmitAnswer={handleAnswerSubmitted}
-            isLocked={isNumpadLocked}
+            combo={p1.combo}
+            lastBonusPoints={lastBonusPoints}
           />
 
-          <div className="flex items-center justify-between text-xs text-slate-500 px-2 py-1">
+          {/* 3. Math Question Card */}
+          <div className="shrink-0">
+            <QuestionCard question={currentQuestion} />
+          </div>
+
+          {/* 4. Ergonomic Responsive Numpad */}
+          <div className="shrink-0">
+            <Numpad
+              onSubmitAnswer={handleAnswerSubmitted}
+              isLocked={isNumpadLocked}
+            />
+          </div>
+
+          {/* 5. Minimalistic Match Controls Footer */}
+          <div className="flex items-center justify-between text-[10px] text-slate-500 px-1 shrink-0">
             <button
               onClick={handleExitMatch}
-              className="hover:text-rose-400 transition flex items-center gap-1 font-semibold"
+              className="hover:text-rose-400 active:text-rose-300 transition flex items-center gap-1 font-semibold"
             >
-              <LogOut className="w-3.5 h-3.5" /> KELUAR MATCH
+              <LogOut className="w-3 h-3" /> KELUAR MATCH
             </button>
 
-            <span className="text-[10px] uppercase font-bold text-slate-600">
-              MATH BOXING ONLINE • KIDS EDITION
+            <span className="text-[9px] uppercase font-bold text-slate-600">
+              MATH BOXING ONLINE
             </span>
           </div>
         </div>
@@ -850,7 +903,10 @@ export default function App() {
           wrongCount={wrongCount}
           highestCombo={highestCombo}
           answerHistory={answerHistory}
-          onRematch={() => startMatch({ roomId: activeRoomId })}
+          isMultiplayer={mode === "quick_match" || mode === "private_room"}
+          rematchStatus={rematchStatus}
+          opponentLeft={opponentLeft}
+          onRematch={handleRematchClick}
           onExit={handleExitMatch}
         />
       )}

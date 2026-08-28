@@ -4,6 +4,7 @@ import { Flame, Zap, Award, Sparkles, Crown, Trophy } from 'lucide-react';
 interface ComboTrackerProps {
   combo: number;
   lastBonusPoints?: number | null;
+  compact?: boolean;
 }
 
 export const getComboMultiplier = (combo: number): { multiplier: number; label: string; colorClass: string; borderClass: string } => {
@@ -24,7 +25,7 @@ interface MilestoneBanner {
   glowShadow: string;
 }
 
-export const ComboTracker: React.FC<ComboTrackerProps> = ({ combo, lastBonusPoints }) => {
+export const ComboTracker: React.FC<ComboTrackerProps> = ({ combo, lastBonusPoints, compact = false }) => {
   const { multiplier, label, colorClass, borderClass } = getComboMultiplier(combo);
   const [activeBanner, setActiveBanner] = useState<MilestoneBanner | null>(null);
 
@@ -126,6 +127,32 @@ export const ComboTracker: React.FC<ComboTrackerProps> = ({ combo, lastBonusPoin
   };
 
   const { containerGlow, textGlow, flameClass } = getGlowIntensity(combo);
+
+  if (compact) {
+    if (!activeBanner) return null;
+    return (
+      <div className="fixed top-12 left-1/2 -translate-x-1/2 z-50 pointer-events-none w-11/12 max-w-sm animate-bounce">
+        <div
+          className={`bg-gradient-to-r ${activeBanner.bgGradient} border-2 ${activeBanner.borderColor} ${activeBanner.glowShadow} rounded-2xl px-3 py-1.5 flex items-center justify-between gap-2 backdrop-blur-md transition-all duration-300 scale-105`}
+        >
+          <div className="text-xl sm:text-2xl animate-pulse">
+            {activeBanner.badgeEmoji}
+          </div>
+          <div className="flex-1 text-center">
+            <div className="font-arcade text-xs sm:text-sm font-black tracking-wider uppercase drop-shadow-md">
+              {activeBanner.title}
+            </div>
+            <div className="text-[9px] sm:text-xs font-bold opacity-90 tracking-tight">
+              {activeBanner.subtitle}
+            </div>
+          </div>
+          <div className="text-xl sm:text-2xl animate-pulse">
+            {activeBanner.badgeEmoji}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative w-full max-w-2xl mx-auto">

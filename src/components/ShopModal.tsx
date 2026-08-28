@@ -24,8 +24,7 @@ import {
   DIAMOND_BUNDLES,
   DiamondBundle,
 } from '../utils/shop';
-import { PlayerProfile, syncUserProfileToFirestore, db } from '../lib/firebase';
-import { doc, setDoc, arrayUnion } from 'firebase/firestore';
+import { PlayerProfile } from '../lib/supabase';
 import { audio } from '../utils/audio';
 
 interface ShopModalProps {
@@ -103,25 +102,16 @@ export const ShopModal: React.FC<ShopModalProps> = ({
       onEquipAttribute(item.id);
     }
 
-    // Save to Firestore if user is logged in
-    if (currentUser?.uid) {
-      try {
-        const userRef = doc(db, 'users', currentUser.uid);
-        const updates: any = { diamonds: newBalance };
-        if (item.category === 'skin') {
-          updates.purchasedSkins = arrayUnion(item.id);
-          updates.selectedSkinId = item.id;
-        } else if (item.category === 'arena') {
-          updates.purchasedArenas = arrayUnion(item.id);
-          updates.equippedArena = item.id;
-        } else if (item.category === 'attribute') {
-          updates.purchasedAttributes = arrayUnion(item.id);
-          updates.equippedAttribute = item.id;
-        }
-        await setDoc(userRef, updates, { merge: true });
-      } catch (err) {
-        console.error('Error saving purchase to Firestore:', err);
+    // Save purchase state locally
+    try {
+      localStorage.setItem('mb_diamonds', newBalance.toString());
+      if (item.category === 'skin') {
+        const skins = JSON.parse(localStorage.getItem('mb_purchased_skins') || '[]');
+        if (!skins.includes(item.id)) skins.push(item.id);
+        localStorage.setItem('mb_purchased_skins', JSON.stringify(skins));
       }
+    } catch (err) {
+      console.warn('Error saving purchase state:', err);
     }
 
     audio.playBell();
@@ -152,9 +142,10 @@ export const ShopModal: React.FC<ShopModalProps> = ({
         const newTotal = diamonds + totalAwarded;
         onUpdateDiamonds(newTotal);
 
-        if (currentUser?.uid) {
-          const userRef = doc(db, 'users', currentUser.uid);
-          await setDoc(userRef, { diamonds: newTotal }, { merge: true });
+        try {
+          localStorage.setItem('mb_diamonds', newTotal.toString());
+        } catch (err) {
+          console.warn('Error saving diamonds:', err);
         }
       } else if (type === 'item' && 'category' in itemRef!) {
         const shopItem = itemRef as ShopItem;
@@ -169,20 +160,14 @@ export const ShopModal: React.FC<ShopModalProps> = ({
           onEquipAttribute(shopItem.id);
         }
 
-        if (currentUser?.uid) {
-          const userRef = doc(db, 'users', currentUser.uid);
-          const updates: any = {};
+        try {
           if (shopItem.category === 'skin') {
-            updates.purchasedSkins = arrayUnion(shopItem.id);
-            updates.selectedSkinId = shopItem.id;
-          } else if (shopItem.category === 'arena') {
-            updates.purchasedArenas = arrayUnion(shopItem.id);
-            updates.equippedArena = shopItem.id;
-          } else if (shopItem.category === 'attribute') {
-            updates.purchasedAttributes = arrayUnion(shopItem.id);
-            updates.equippedAttribute = shopItem.id;
+            const skins = JSON.parse(localStorage.getItem('mb_purchased_skins') || '[]');
+            if (!skins.includes(shopItem.id)) skins.push(shopItem.id);
+            localStorage.setItem('mb_purchased_skins', JSON.stringify(skins));
           }
-          await setDoc(userRef, updates, { merge: true });
+        } catch (err) {
+          console.warn('Error saving item purchase:', err);
         }
       }
     }, 1500);

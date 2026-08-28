@@ -46,7 +46,7 @@ import {
   DailyChallengeState,
 } from "../utils/dailyChallenges";
 import { LoginModal } from "./LoginModal";
-import { PlayerProfile } from "../lib/firebase";
+import { PlayerProfile } from "../lib/supabase";
 import { User, LogIn, ShieldCheck } from "lucide-react";
 
 interface MainMenuProps {
