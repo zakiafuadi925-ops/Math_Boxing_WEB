@@ -1639,14 +1639,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               </button>
               <button
                 onClick={() => {
-                  if (roomInput.trim()) {
+                  const cleanedCode = roomInput.trim().replace(/\s+/g, "-").toUpperCase();
+                  if (cleanedCode) {
                     audio.playClick();
                     setShowPrivateModal(false);
                     onStartGame(
                       "private_room",
                       selectedCategory,
                       undefined,
-                      roomInput.trim(),
+                      cleanedCode,
                       selectedDuration,
                     );
                   }

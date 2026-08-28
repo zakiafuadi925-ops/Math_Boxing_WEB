@@ -127,6 +127,7 @@ export default function App() {
 
   // Realtime Channel Ref
   const gameChannelRef = useRef<RealtimeChannel | null>(null);
+  const currentGameRoomIdRef = useRef<string | null>(null);
 
   // Boxer Skins & Lifetime Progression
   const [lifetimeScore, setLifetimeScore] = useState<number>(() => {
@@ -314,6 +315,7 @@ export default function App() {
       opponentName?: string;
       duration?: GameDuration;
       category?: QuestionCategory;
+      isBot?: boolean;
     }) => {
       console.log("--> startMatch dipanggil dengan roomData:", roomData);
 
@@ -354,7 +356,11 @@ export default function App() {
         currentAction: "idle",
       }));
 
-      const isMultiplayer = mode === "quick_match" || mode === "private_room";
+      const isBotMatch =
+        Boolean(roomData?.isBot) ||
+        Boolean(roomData?.roomId?.startsWith("bot_")) ||
+        mode === "practice";
+      const isMultiplayer = !isBotMatch && (mode === "quick_match" || mode === "private_room");
 
       setP2((prev) => ({
         ...prev,
@@ -365,10 +371,10 @@ export default function App() {
             !prev.name.startsWith("Bot")
               ? prev.name
               : "Lawan")
-          : `Bot (${aiDifficulty.toUpperCase()})`,
+          : roomData?.opponentName || `Bot (${aiDifficulty.toUpperCase()})`,
         score: 0,
         health: 100,
-        isAi: !isMultiplayer,
+        isAi: isBotMatch,
         avatarColor: BOXER_SKINS[1].trunksColor,
         glovesColor: BOXER_SKINS[1].glovesColor,
         combo: 0,
@@ -386,143 +392,151 @@ export default function App() {
 
         // Jika belum ada channel atau room berbeda, buat channel baru
         let gameChannel = gameChannelRef.current;
-        if (!gameChannel || (gameChannel as any).topic !== `game_${targetRoomId}`) {
+        if (!gameChannel || currentGameRoomIdRef.current !== targetRoomId) {
           if (gameChannel) {
             supabase.removeChannel(gameChannel);
           }
 
+          currentGameRoomIdRef.current = targetRoomId;
           gameChannel = supabase.channel(`game_${targetRoomId}`, {
             config: {
               broadcast: { self: false },
             },
           });
           gameChannelRef.current = gameChannel;
-        }
 
-        // 1. Dengarkan jika ada lawan bergabung
-        gameChannel
-          .on("broadcast", { event: "PLAYER_JOINED" }, ({ payload }) => {
-            if (payload?.playerName) {
-              setP2((prev) => ({ ...prev, name: payload.playerName }));
-            }
-          })
-          // 2. Dengarkan pukulan lawan
-          .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
-            audio.playPunchHit();
-            setLastHitBy("p2");
-            triggerScreenShake("light");
+          // 1. Dengarkan jika ada lawan bergabung
+          gameChannel
+            .on("broadcast", { event: "PLAYER_JOINED" }, ({ payload }) => {
+              if (payload?.playerName) {
+                setP2((prev) => ({ ...prev, name: payload.playerName }));
+                if (!payload.isReply && gameChannelRef.current) {
+                  gameChannelRef.current.send({
+                    type: "broadcast",
+                    event: "PLAYER_JOINED",
+                    payload: { playerName: playerName || "Player 1", isReply: true },
+                  });
+                }
+              }
+            })
+            // 2. Dengarkan pukulan lawan
+            .on("broadcast", { event: "PLAYER_ATTACK" }, ({ payload }) => {
+              audio.playPunchHit();
+              setLastHitBy("p2");
+              triggerScreenShake("light");
 
-            if (payload.nextQuestion) {
-              setCurrentQuestion(payload.nextQuestion);
-            }
+              if (payload.nextQuestion) {
+                setCurrentQuestion(payload.nextQuestion);
+              }
 
-            const updatedP1Health = payload.p2Health !== undefined ? payload.p2Health : 100;
-            const updatedP2Health = payload.p1Health !== undefined ? payload.p1Health : undefined;
+              const updatedP1Health = payload.p2Health !== undefined ? payload.p2Health : 100;
+              const updatedP2Health = payload.p1Health !== undefined ? payload.p1Health : undefined;
 
-            setP2((prev) => ({
-              ...prev,
-              ...(updatedP2Health !== undefined ? { health: updatedP2Health } : {}),
-              score:
-                payload.totalScore ??
-                prev.score + (payload.earnedScore || 2),
-              currentAction: payload.punchType || "jab",
-            }));
-
-            // Cek apakah serangan lawan menyebabkan Knockout (K.O.) pada kita
-            if (updatedP1Health <= 0) {
-              audio.playKnockout();
-              if (matchTimerRef.current) clearInterval(matchTimerRef.current);
-              setP1((prev) => ({
-                ...prev,
-                health: 0,
-                currentAction: "knockdown",
-              }));
               setP2((prev) => ({
                 ...prev,
-                currentAction: "taunt_crown",
+                ...(updatedP2Health !== undefined ? { health: updatedP2Health } : {}),
+                score:
+                  payload.totalScore ??
+                  prev.score + (payload.earnedScore || 2),
+                currentAction: payload.punchType || "jab",
               }));
-              setFinishReason("ko_loss");
+
+              // Cek apakah serangan lawan menyebabkan Knockout (K.O.) pada kita
+              if (updatedP1Health <= 0) {
+                audio.playKnockout();
+                if (matchTimerRef.current) clearInterval(matchTimerRef.current);
+                setP1((prev) => ({
+                  ...prev,
+                  health: 0,
+                  currentAction: "knockdown",
+                }));
+                setP2((prev) => ({
+                  ...prev,
+                  currentAction: "taunt_crown",
+                }));
+                setFinishReason("ko_loss");
+                setTimeout(() => {
+                  setStage("game_over");
+                }, 600);
+              } else {
+                setP1((prev) => ({
+                  ...prev,
+                  health: updatedP1Health,
+                  currentAction: "hit",
+                }));
+
+                setTimeout(() => {
+                  setP1((p) => ({ ...p, currentAction: "idle" }));
+                  setP2((p) => ({ ...p, currentAction: "idle" }));
+                }, 400);
+              }
+            })
+            // 3. Dengarkan event Knockout instan dari lawan
+            .on("broadcast", { event: "PLAYER_KNOCKOUT" }, ({ payload }) => {
+              audio.playKnockout();
+              if (matchTimerRef.current) clearInterval(matchTimerRef.current);
+              if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
+              
+              if (payload?.winner === "p1") {
+                // Pengirim payload menang, artinya kita kalah KO
+                setP1((prev) => ({ ...prev, health: 0, currentAction: "knockdown" }));
+                setP2((prev) => ({ ...prev, currentAction: "taunt_crown" }));
+                setFinishReason("ko_loss");
+              } else {
+                // Kita yang menang KO
+                setP1((prev) => ({ ...prev, currentAction: "taunt_crown" }));
+                setP2((prev) => ({ ...prev, health: 0, currentAction: "knockdown" }));
+                setFinishReason("ko_win");
+              }
+
               setTimeout(() => {
                 setStage("game_over");
               }, 600);
-            } else {
-              setP1((prev) => ({
-                ...prev,
-                health: updatedP1Health,
-                currentAction: "hit",
-              }));
-
+            })
+            // 4. Dengarkan emote lawan
+            .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
+              audio.playEmoteSound(payload.action);
+              setP2((prev) => ({ ...prev, currentAction: payload.action }));
               setTimeout(() => {
-                setP1((p) => ({ ...p, currentAction: "idle" }));
-                setP2((p) => ({ ...p, currentAction: "idle" }));
-              }, 400);
-            }
-          })
-          // 3. Dengarkan event Knockout instan dari lawan
-          .on("broadcast", { event: "PLAYER_KNOCKOUT" }, ({ payload }) => {
-            audio.playKnockout();
-            if (matchTimerRef.current) clearInterval(matchTimerRef.current);
-            if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
-            
-            if (payload?.winner === "p1") {
-              // Pengirim payload menang, artinya kita kalah KO
-              setP1((prev) => ({ ...prev, health: 0, currentAction: "knockdown" }));
-              setP2((prev) => ({ ...prev, currentAction: "taunt_crown" }));
-              setFinishReason("ko_loss");
-            } else {
-              // Kita yang menang KO
-              setP1((prev) => ({ ...prev, currentAction: "taunt_crown" }));
-              setP2((prev) => ({ ...prev, health: 0, currentAction: "knockdown" }));
-              setFinishReason("ko_win");
-            }
-
-            setTimeout(() => {
-              setStage("game_over");
-            }, 600);
-          })
-          // 4. Dengarkan emote lawan
-          .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
-            audio.playEmoteSound(payload.action);
-            setP2((prev) => ({ ...prev, currentAction: payload.action }));
-            setTimeout(() => {
-              setP2((p) =>
-                p.currentAction === payload.action
-                  ? { ...p, currentAction: "idle" }
-                  : p,
-              );
-            }, 2000);
-          })
-          // 5. Dengarkan permintaan rematch lawan
-          .on("broadcast", { event: "PLAYER_REMATCH_REQUEST" }, ({ payload }) => {
-            audio.playBell();
-            setRematchStatus("requested_by_opponent");
-            if (payload?.playerName) {
-              setP2((prev) => ({ ...prev, name: payload.playerName }));
-            }
-          })
-          // 6. Dengarkan mulainya pertandingan rematch yang telah disetujui
-          .on("broadcast", { event: "GAME_REMATCH_START" }, ({ payload }) => {
-            console.log("🎮 Rematch disetujui lawan! Memulai game baru:", payload);
-            startMatch({
-              roomId: targetRoomId,
-              initialQuestion: payload?.initialQuestion,
-              opponentName: payload?.senderName,
+                setP2((p) =>
+                  p.currentAction === payload.action
+                    ? { ...p, currentAction: "idle" }
+                    : p,
+                );
+              }, 2000);
+            })
+            // 5. Dengarkan permintaan rematch lawan
+            .on("broadcast", { event: "PLAYER_REMATCH_REQUEST" }, ({ payload }) => {
+              audio.playBell();
+              setRematchStatus("requested_by_opponent");
+              if (payload?.playerName) {
+                setP2((prev) => ({ ...prev, name: payload.playerName }));
+              }
+            })
+            // 6. Dengarkan mulainya pertandingan rematch yang telah disetujui
+            .on("broadcast", { event: "GAME_REMATCH_START" }, ({ payload }) => {
+              console.log("🎮 Rematch disetujui lawan! Memulai game baru:", payload);
+              startMatch({
+                roomId: targetRoomId,
+                initialQuestion: payload?.initialQuestion,
+                opponentName: payload?.senderName,
+              });
+            })
+            // 7. Dengarkan jika lawan keluar
+            .on("broadcast", { event: "PLAYER_LEFT_MATCH" }, () => {
+              setOpponentLeft(true);
             });
-          })
-          // 7. Dengarkan jika lawan keluar
-          .on("broadcast", { event: "PLAYER_LEFT_MATCH" }, () => {
-            setOpponentLeft(true);
+
+          gameChannel.subscribe((status) => {
+            if (status === "SUBSCRIBED") {
+              gameChannel?.send({
+                type: "broadcast",
+                event: "PLAYER_JOINED",
+                payload: { playerName: playerName || "Player 1" },
+              });
+            }
           });
-
-        gameChannel.subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            gameChannel?.send({
-              type: "broadcast",
-              event: "PLAYER_JOINED",
-              payload: { playerName: playerName || "Player 1" },
-            });
-          }
-        });
+        }
       }
 
       if (roomData?.initialQuestion) {
@@ -1085,8 +1099,23 @@ export default function App() {
           roomCode={roomCode}
           category={category}
           duration={selectedDuration}
+          playerName={playerName}
+          selectedSkinId={selectedSkinId}
           onCancel={() => setStage("main_menu")}
-          onMatchFound={(roomData) => startMatch(roomData)}
+          onMatchFound={(roomData) => {
+            if (roomData?.isBot) {
+              setMode("practice");
+            }
+            startMatch(roomData);
+          }}
+          onSwitchToBot={() => {
+            setMode("practice");
+            startMatch({
+              duration: selectedDuration,
+              opponentName: "Bot Juara AI",
+              isBot: true,
+            });
+          }}
         />
       )}
 

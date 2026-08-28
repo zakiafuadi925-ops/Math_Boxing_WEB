@@ -79,6 +79,7 @@ export interface MatchmakingModalProps {
     category?: QuestionCategory;
     initialQuestion?: MathQuestion;
     opponentName?: string;
+    isBot?: boolean;
   }) => void;
   onSwitchToBot?: () => void;
 }

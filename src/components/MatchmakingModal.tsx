@@ -32,6 +32,7 @@ interface MatchmakingModalProps {
     category?: QuestionCategory;
     initialQuestion?: MathQuestion;
     opponentName?: string;
+    isBot?: boolean;
   }) => void;
   onSwitchToBot?: () => void;
 }
@@ -87,10 +88,13 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
       setSearchStepText(steps[stepIdx]);
     }, 3500);
 
-    // Channel target name
+    // Channel target name (normalize room code for private rooms)
+    const normalizedRoomCode = roomCode
+      ? roomCode.trim().replace(/\s+/g, "-").toUpperCase()
+      : "";
     const channelName =
-      mode === "private_room" && roomCode
-        ? `room_${roomCode}`
+      mode === "private_room" && normalizedRoomCode
+        ? `room_${normalizedRoomCode}`
         : `quick_match_queue_${duration}`;
 
     const channel = supabase.channel(channelName, {
@@ -98,77 +102,101 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
         presence: {
           key: myId,
         },
+        broadcast: {
+          self: true,
+        },
       },
     });
 
     channelRef.current = channel;
 
-    // 1. Presence Sync: Check if opponent is present in the lobby
-    channel
-      .on("presence", { event: "sync" }, () => {
-        if (hasMatchedRef.current) return;
+    // Helper untuk konfirmasi pertandingan dan transisi kedua pemain
+    const handleMatchConfirmed = (payload: any) => {
+      if (hasMatchedRef.current || !payload) return;
+      hasMatchedRef.current = true;
+      setMatchStatus("found");
+      audio.playBell();
 
-        const state = channel.presenceState();
-        const playerKeys = Object.keys(state);
+      const isHost = payload.hostId === myId;
+      const oppName = isHost
+        ? payload.guestName || (mode === "private_room" ? "Teman Kamar" : "Lawan Online")
+        : payload.hostName || (mode === "private_room" ? "Host Kamar" : "Lawan Online");
 
-        if (playerKeys.length >= 2) {
-          // Identify other player
-          const otherKey = playerKeys.find((k) => k !== myId) || playerKeys[0];
-          const otherPlayerData = state[otherKey]?.[0] as any;
-          const otherPlayerName =
-            otherPlayerData?.playerName ||
-            (mode === "private_room" ? "Teman Kamar" : "Lawan Online");
+      setOpponentInfo({
+        name: oppName,
+        badge: "Siap Bertarung!",
+      });
 
-          // The player with smaller lexicographical ID acts as the host/coordinator
-          const isHost = myId < otherKey;
+      setTimeout(() => {
+        onMatchFound({
+          roomId: payload.roomId,
+          duration: payload.duration || duration,
+          category: payload.category || category,
+          initialQuestion: payload.initialQuestion,
+          opponentName: oppName,
+          isBot: false,
+        });
+      }, 1200);
+    };
 
-          if (isHost) {
-            const dedicatedRoomId = `match_${Date.now()}_${myId.substring(2, 6)}_${otherKey.substring(2, 6)}`;
-            const firstQuestion = MathGenerator.generateQuestion(category, "easy");
+    // Fungsi koordinasi presence untuk mencocokkan pemain
+    const checkAndMatchPlayers = () => {
+      if (hasMatchedRef.current) return;
 
-            // Broadcast match offer to all participants
-            channel.send({
-              type: "broadcast",
-              event: "MATCH_CONFIRMED",
-              payload: {
-                roomId: dedicatedRoomId,
-                hostId: myId,
-                guestId: otherKey,
-                hostName: playerName,
-                guestName: otherPlayerName,
-                duration,
-                category,
-                initialQuestion: firstQuestion,
-              },
-            });
-          }
+      const state = channel.presenceState();
+      const playerKeys = Object.keys(state);
+
+      if (playerKeys.length >= 2) {
+        // Cari pemain lain di presence state
+        const otherKey = playerKeys.find((k) => k !== myId);
+        if (!otherKey) return;
+
+        const otherPlayerData = state[otherKey]?.[0] as any;
+        const otherPlayerName =
+          otherPlayerData?.playerName ||
+          (mode === "private_room" ? "Teman Kamar" : "Lawan Online");
+
+        // Pemain dengan ID leksikografis lebih kecil bertindak sebagai Host/Koordinator
+        const isHost = myId < otherKey;
+
+        if (isHost) {
+          const dedicatedRoomId =
+            mode === "private_room" && normalizedRoomCode
+              ? `private_${normalizedRoomCode}_${Date.now()}`
+              : `match_${Date.now()}_${myId.substring(2, 6)}_${otherKey.substring(2, 6)}`;
+          const firstQuestion = MathGenerator.generateQuestion(category, "easy");
+
+          const matchPayload = {
+            roomId: dedicatedRoomId,
+            hostId: myId,
+            guestId: otherKey,
+            hostName: playerName || "Pemain 1",
+            guestName: otherPlayerName,
+            duration: otherPlayerData?.duration || duration,
+            category: category !== "all" ? category : (otherPlayerData?.category || "all"),
+            initialQuestion: firstQuestion,
+          };
+
+          // Broadcast ke channel (guest akan menerima event ini)
+          channel.send({
+            type: "broadcast",
+            event: "MATCH_CONFIRMED",
+            payload: matchPayload,
+          });
+
+          // Host juga langsung transisi agar tidak pernah stuck
+          handleMatchConfirmed(matchPayload);
         }
-      })
+      }
+    };
+
+    // 1. Presence Sync & Join Listeners
+    channel
+      .on("presence", { event: "sync" }, checkAndMatchPlayers)
+      .on("presence", { event: "join" }, checkAndMatchPlayers)
       // 2. Broadcast Listener: MATCH_CONFIRMED
       .on("broadcast", { event: "MATCH_CONFIRMED" }, ({ payload }) => {
-        if (hasMatchedRef.current || !payload) return;
-
-        hasMatchedRef.current = true;
-        setMatchStatus("found");
-        audio.playBell();
-
-        const oppName =
-          payload.hostId === myId ? payload.guestName : payload.hostName;
-
-        setOpponentInfo({
-          name: oppName || "Lawan Terhubung",
-          badge: "Siap Bertarung!",
-        });
-
-        setTimeout(() => {
-          onMatchFound({
-            roomId: payload.roomId,
-            duration: payload.duration || duration,
-            category: payload.category || category,
-            initialQuestion: payload.initialQuestion,
-            opponentName: oppName,
-          });
-        }, 1400);
+        handleMatchConfirmed(payload);
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
@@ -188,7 +216,6 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
       setSearchTimer((prev) => {
         if (prev <= 1) {
           clearInterval(timerInterval);
-          // If searching timed out and no real opponent found, offer bot sparring
           return 0;
         }
         return prev - 1;
@@ -226,6 +253,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
         duration,
         category,
         opponentName: "Bot Juara AI",
+        isBot: true,
       });
     }
   };
