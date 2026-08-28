@@ -24,6 +24,7 @@ interface GameOverModalProps {
   wrongCount: number;
   highestCombo: number;
   duration?: GameDuration;
+  finishReason?: "ko_win" | "ko_loss" | "time_up";
   answerHistory?: AnswerHistoryPoint[];
   isMultiplayer?: boolean;
   rematchStatus?: 'idle' | 'requested_by_me' | 'requested_by_opponent';
@@ -40,6 +41,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   wrongCount,
   highestCombo,
   duration,
+  finishReason = "time_up",
   answerHistory = [],
   isMultiplayer = false,
   rematchStatus = 'idle',
@@ -47,8 +49,9 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   onRematch,
   onExit,
 }) => {
-  const isP1Winner = p1.score > p2.score;
-  const isDraw = p1.score === p2.score;
+  const isP1Winner = finishReason === "ko_win" ? true : finishReason === "ko_loss" ? false : p1.score > p2.score;
+  const isDraw = finishReason === "time_up" && p1.score === p2.score;
+  const isKnockout = finishReason === "ko_win" || finishReason === "ko_loss";
 
   const [victoryEmote, setVictoryEmote] = useState<ActionType>(
     isP1Winner ? 'taunt_crown' : 'idle'
@@ -113,23 +116,40 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <Trophy className="w-7 h-7" />
           </div>
 
-          <h2 className="font-arcade text-2xl sm:text-3xl text-amber-400 tracking-wider">
-            TIME UP!
+          <h2 className="font-arcade text-2xl sm:text-3xl text-amber-400 tracking-wider flex items-center justify-center gap-2">
+            {isKnockout ? (
+              <span className="text-red-400 animate-pulse drop-shadow-[0_0_12px_rgba(239,68,68,0.8)]">
+                💥 KNOCKOUT (K.O.)!
+              </span>
+            ) : (
+              <span>⏱️ TIME UP!</span>
+            )}
           </h2>
 
-          {duration && (
-            <div className="inline-block mt-0.5 mb-1 px-2.5 py-0.5 bg-slate-950/80 border border-amber-500/30 rounded-full text-[10px] font-bold text-amber-300">
-              ⏱️ Durasi Match: {duration === 60 ? "1 Menit (Kilat)" : duration === 300 ? "5 Menit (Standar)" : "10 Menit (Marathon)"}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center justify-center gap-1.5 mt-1 mb-1">
+            {isKnockout && (
+              <div className="px-2.5 py-0.5 bg-red-950/90 border border-red-500/50 rounded-full text-[10px] font-bold text-red-300 font-mono">
+                ⚡ Selesai Lebih Cepat (K.O.)
+              </div>
+            )}
+            {duration && (
+              <div className="px-2.5 py-0.5 bg-slate-950/80 border border-amber-500/30 rounded-full text-[10px] font-bold text-amber-300 font-mono">
+                ⏱️ Target: {duration === 60 ? "1 Min" : duration === 300 ? "5 Min" : "10 Min"}
+              </div>
+            )}
+          </div>
 
           <div className="mt-1 font-arcade text-lg sm:text-xl text-slate-100">
             {isDraw ? (
               <span className="text-yellow-400">PERTANDINGAN SERI!</span>
             ) : isP1Winner ? (
-              <span className="text-emerald-400">KAMU MENANG (KO)!</span>
+              <span className="text-emerald-400">
+                {isKnockout ? "🏆 MENANG DENGAN KNOCKOUT (K.O.)!" : "🏆 KAMU MENANG ANGKA!"}
+              </span>
             ) : (
-              <span className="text-rose-400">LAWAN MENANG!</span>
+              <span className="text-rose-400">
+                {isKnockout ? "💀 TERKENA KNOCKOUT (K.O.)!" : "💀 LAWAN MENANG ANGKA!"}
+              </span>
             )}
           </div>
         </div>

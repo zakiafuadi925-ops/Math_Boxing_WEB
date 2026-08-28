@@ -7,6 +7,8 @@ export type QuestionCategory =
   | "geometry"
   | "all";
 
+export type QuestionDifficulty = "easy" | "medium" | "hard";
+
 export type GameDuration = 60 | 300 | 600; // in seconds: 1 min, 5 min, 10 min
 
 export interface MathQuestion {
@@ -15,6 +17,7 @@ export interface MathQuestion {
   questionText: string;
   correctAnswer: number;
   scoreValue: number;
+  difficulty?: QuestionDifficulty;
   subText?: string;
   // For counting category (e.g. 7 apples)
   visualItem?: {
@@ -94,6 +97,7 @@ export interface MatchRecord {
   totalAnswered?: number;
   correctCount?: number;
   wrongCount?: number;
+  finishReason?: "ko_win" | "ko_loss" | "time_up";
 }
 
 export interface MatchRoom {

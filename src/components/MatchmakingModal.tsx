@@ -124,7 +124,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
 
           if (isHost) {
             const dedicatedRoomId = `match_${Date.now()}_${myId.substring(2, 6)}_${otherKey.substring(2, 6)}`;
-            const firstQuestion = MathGenerator.generateQuestion(category);
+            const firstQuestion = MathGenerator.generateQuestion(category, "easy");
 
             // Broadcast match offer to all participants
             channel.send({

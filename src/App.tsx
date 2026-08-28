@@ -8,6 +8,7 @@ import {
   MatchRecord,
   AnswerHistoryPoint,
   GameDuration,
+  QuestionDifficulty,
 } from "./types";
 import { MathGenerator } from "./utils/mathGenerator";
 import { audio } from "./utils/audio";
@@ -25,7 +26,7 @@ import { GameOverModal } from "./components/GameOverModal";
 import { ComboTracker, getComboMultiplier } from "./components/ComboTracker";
 import { EmoteBar } from "./components/EmoteBar";
 
-import { Timer, LogOut } from "lucide-react";
+import { Timer, LogOut, Maximize2, Minimize2 } from "lucide-react";
 
 export default function App() {
   // Navigation & Game State
@@ -55,6 +56,67 @@ export default function App() {
   });
 
   const [activeDuration, setActiveDuration] = useState<GameDuration>(300);
+  const [finishReason, setFinishReason] = useState<"ko_win" | "ko_loss" | "time_up">("time_up");
+
+  // Fullscreen Detection & Toggle (Optimized for Mobile)
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const updateFs = () => {
+      setIsFullscreen(
+        Boolean(
+          document.fullscreenElement ||
+          (document as any).webkitFullscreenElement ||
+          (document as any).mozFullScreenElement ||
+          (document as any).msFullscreenElement
+        )
+      );
+    };
+
+    document.addEventListener("fullscreenchange", updateFs);
+    document.addEventListener("webkitfullscreenchange", updateFs);
+    document.addEventListener("mozfullscreenchange", updateFs);
+    document.addEventListener("MSFullscreenChange", updateFs);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", updateFs);
+      document.removeEventListener("webkitfullscreenchange", updateFs);
+      document.removeEventListener("mozfullscreenchange", updateFs);
+      document.removeEventListener("MSFullscreenChange", updateFs);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    audio.playClick();
+    try {
+      const doc = document as any;
+      const docEl = document.documentElement as any;
+
+      if (!doc.fullscreenElement && !doc.webkitFullscreenElement && !doc.mozFullScreenElement && !doc.msFullscreenElement) {
+        if (docEl.requestFullscreen) {
+          docEl.requestFullscreen().catch(() => {});
+        } else if (docEl.webkitRequestFullscreen) {
+          docEl.webkitRequestFullscreen();
+        } else if (docEl.mozRequestFullScreen) {
+          docEl.mozRequestFullScreen();
+        } else if (docEl.msRequestFullscreen) {
+          docEl.msRequestFullscreen();
+        }
+      } else {
+        if (doc.exitFullscreen) {
+          doc.exitFullscreen().catch(() => {});
+        } else if (doc.webkitExitFullscreen) {
+          doc.webkitExitFullscreen();
+        } else if (doc.mozCancelFullScreen) {
+          doc.mozCancelFullScreen();
+        } else if (doc.msExitFullscreen) {
+          doc.msExitFullscreen();
+        }
+      }
+    } catch (err) {
+      console.warn("Fullscreen toggle exception:", err);
+    }
+  }, []);
 
   const handleSelectDuration = (dur: GameDuration) => {
     setSelectedDuration(dur);
@@ -208,11 +270,41 @@ export default function App() {
     return `${mins}:${secs < 10 ? "0" : ""}${secs}`;
   };
 
+  // Helper untuk menentukan tingkat kesulitan soal berdasarkan durasi permainan dan progres waktu
+  const getDifficultyForProgress = useCallback(
+    (timeRem: number, dur: GameDuration, answered: number): QuestionDifficulty => {
+      // Pemanasan di awal (3 soal pertama selalu easy)
+      if (answered < 3) return "easy";
+
+      const elapsed = dur - timeRem;
+      const progress = elapsed / Math.max(1, dur);
+
+      // Menit-menit awal (0% - 35% durasi): Mudah
+      if (progress < 0.35) {
+        return "easy";
+      }
+      // Pertengahan game (35% - 70% durasi): Menengah
+      else if (progress < 0.7) {
+        return "medium";
+      }
+      // Akhir game / Klimaks (70% - 100% durasi): Sulit
+      else {
+        return "hard";
+      }
+    },
+    [],
+  );
+
   const nextQuestion = useCallback(() => {
-    const q = MathGenerator.generateQuestion(category);
+    const diff = getDifficultyForProgress(
+      timeRemaining,
+      activeDuration,
+      totalAnswered,
+    );
+    const q = MathGenerator.generateQuestion(category, diff);
     setCurrentQuestion(q);
     return q;
-  }, [category]);
+  }, [category, getDifficultyForProgress, timeRemaining, activeDuration, totalAnswered]);
 
   // Start Match logic
   const startMatch = useCallback(
@@ -231,6 +323,7 @@ export default function App() {
       const matchDur = roomData?.duration || selectedDuration || 300;
       setActiveDuration(matchDur);
       setTimeRemaining(matchDur);
+      setFinishReason("time_up");
 
       audio.playBell();
       setTotalAnswered(0);
@@ -323,26 +416,71 @@ export default function App() {
               setCurrentQuestion(payload.nextQuestion);
             }
 
+            const updatedP1Health = payload.p2Health !== undefined ? payload.p2Health : 100;
+            const updatedP2Health = payload.p1Health !== undefined ? payload.p1Health : undefined;
+
             setP2((prev) => ({
               ...prev,
+              ...(updatedP2Health !== undefined ? { health: updatedP2Health } : {}),
               score:
                 payload.totalScore ??
                 prev.score + (payload.earnedScore || 2),
               currentAction: payload.punchType || "jab",
             }));
 
-            setP1((prev) => ({
-              ...prev,
-              health: payload.p2Health ?? Math.max(0, prev.health - 8),
-              currentAction: "hit",
-            }));
+            // Cek apakah serangan lawan menyebabkan Knockout (K.O.) pada kita
+            if (updatedP1Health <= 0) {
+              audio.playKnockout();
+              if (matchTimerRef.current) clearInterval(matchTimerRef.current);
+              setP1((prev) => ({
+                ...prev,
+                health: 0,
+                currentAction: "knockdown",
+              }));
+              setP2((prev) => ({
+                ...prev,
+                currentAction: "taunt_crown",
+              }));
+              setFinishReason("ko_loss");
+              setTimeout(() => {
+                setStage("game_over");
+              }, 600);
+            } else {
+              setP1((prev) => ({
+                ...prev,
+                health: updatedP1Health,
+                currentAction: "hit",
+              }));
+
+              setTimeout(() => {
+                setP1((p) => ({ ...p, currentAction: "idle" }));
+                setP2((p) => ({ ...p, currentAction: "idle" }));
+              }, 400);
+            }
+          })
+          // 3. Dengarkan event Knockout instan dari lawan
+          .on("broadcast", { event: "PLAYER_KNOCKOUT" }, ({ payload }) => {
+            audio.playKnockout();
+            if (matchTimerRef.current) clearInterval(matchTimerRef.current);
+            if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
+            
+            if (payload?.winner === "p1") {
+              // Pengirim payload menang, artinya kita kalah KO
+              setP1((prev) => ({ ...prev, health: 0, currentAction: "knockdown" }));
+              setP2((prev) => ({ ...prev, currentAction: "taunt_crown" }));
+              setFinishReason("ko_loss");
+            } else {
+              // Kita yang menang KO
+              setP1((prev) => ({ ...prev, currentAction: "taunt_crown" }));
+              setP2((prev) => ({ ...prev, health: 0, currentAction: "knockdown" }));
+              setFinishReason("ko_win");
+            }
 
             setTimeout(() => {
-              setP1((p) => ({ ...p, currentAction: "idle" }));
-              setP2((p) => ({ ...p, currentAction: "idle" }));
-            }, 400);
+              setStage("game_over");
+            }, 600);
           })
-          // 3. Dengarkan emote lawan
+          // 4. Dengarkan emote lawan
           .on("broadcast", { event: "PLAYER_EMOTE" }, ({ payload }) => {
             audio.playEmoteSound(payload.action);
             setP2((prev) => ({ ...prev, currentAction: payload.action }));
@@ -354,7 +492,7 @@ export default function App() {
               );
             }, 2000);
           })
-          // 4. Dengarkan permintaan rematch lawan
+          // 5. Dengarkan permintaan rematch lawan
           .on("broadcast", { event: "PLAYER_REMATCH_REQUEST" }, ({ payload }) => {
             audio.playBell();
             setRematchStatus("requested_by_opponent");
@@ -362,7 +500,7 @@ export default function App() {
               setP2((prev) => ({ ...prev, name: payload.playerName }));
             }
           })
-          // 5. Dengarkan mulainya pertandingan rematch yang telah disetujui
+          // 6. Dengarkan mulainya pertandingan rematch yang telah disetujui
           .on("broadcast", { event: "GAME_REMATCH_START" }, ({ payload }) => {
             console.log("🎮 Rematch disetujui lawan! Memulai game baru:", payload);
             startMatch({
@@ -371,7 +509,7 @@ export default function App() {
               opponentName: payload?.senderName,
             });
           })
-          // 6. Dengarkan jika lawan keluar
+          // 7. Dengarkan jika lawan keluar
           .on("broadcast", { event: "PLAYER_LEFT_MATCH" }, () => {
             setOpponentLeft(true);
           });
@@ -542,14 +680,40 @@ export default function App() {
           currentAction: randomPunch,
         }));
 
-        setP1((prev) => ({
-          ...prev,
-          health: Math.max(0, prev.health - 5),
-          currentAction: "hit",
-        }));
+        const baseAiDmg = activeDuration <= 60 ? 8 : activeDuration <= 300 ? 6 : 5;
+
+        setP1((prev) => {
+          const newP1Health = Math.max(0, prev.health - baseAiDmg);
+
+          // Cek apakah serangan Bot menyebabkan Knockout (K.O.) pada pemain
+          if (newP1Health <= 0) {
+            audio.playKnockout();
+            if (matchTimerRef.current) clearInterval(matchTimerRef.current);
+            if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
+            triggerScreenShake("heavy");
+            setFinishReason("ko_loss");
+
+            setTimeout(() => {
+              setP2((bot) => ({ ...bot, currentAction: "taunt_crown" }));
+              setStage("game_over");
+            }, 600);
+
+            return {
+              ...prev,
+              health: 0,
+              currentAction: "knockdown",
+            };
+          }
+
+          return {
+            ...prev,
+            health: newP1Health,
+            currentAction: "hit",
+          };
+        });
 
         setTimeout(() => {
-          setP1((p) => ({ ...p, currentAction: "idle" }));
+          setP1((p) => (p.currentAction === "hit" ? { ...p, currentAction: "idle" } : p));
           setP2((p) => ({ ...p, currentAction: "idle" }));
         }, 400);
 
@@ -564,6 +728,7 @@ export default function App() {
     stage,
     p2.isAi,
     aiDifficulty,
+    activeDuration,
     currentQuestion,
     nextQuestion,
     triggerScreenShake,
@@ -589,6 +754,14 @@ export default function App() {
 
       const nextCombo = p1.combo + 1;
       audio.playComboMilestone(nextCombo);
+
+      // ✨ FITUR HEAL: Pulihkan +15 HP setiap 3 jawaban benar berturut-turut!
+      const isHealStreak = nextCombo >= 3 && nextCombo % 3 === 0;
+      let healedP1Health = p1.health;
+      if (isHealStreak) {
+        healedP1Health = Math.min(100, p1.health + 15);
+        audio.playHeal();
+      }
 
       const { multiplier } = getComboMultiplier(nextCombo);
       const earnedScore = Math.round(currentQuestion.scoreValue * multiplier);
@@ -619,58 +792,124 @@ export default function App() {
         punchTypes[Math.floor(Math.random() * punchTypes.length)];
 
       const newScore = p1.score + earnedScore;
-      const newP2Health = Math.max(0, p2.health - 8);
 
-      // ✅ Generate soal baru yang SAMA untuk dikirim ke lawan
-      const nextQ = MathGenerator.generateQuestion(category);
+      // Kalkulasi Damage berdasarkan durasi match dan combo streak
+      const baseDamage = activeDuration <= 60 ? 9 : activeDuration <= 300 ? 7 : 6;
+      const comboBonusDmg = nextCombo >= 5 ? 3 : nextCombo >= 3 ? 1 : 0;
+      const totalDamage = baseDamage + comboBonusDmg;
+      const newP2Health = Math.max(0, p2.health - totalDamage);
+      const isKnockoutWin = newP2Health <= 0;
 
-      // ✅ Broadcast Payload Lengkap ke Lawan via Supabase Realtime
-      if (gameChannelRef.current) {
-        gameChannelRef.current.send({
-          type: "broadcast",
-          event: "PLAYER_ATTACK",
-          payload: {
-            punchType: randomPunch,
-            earnedScore,
-            totalScore: newScore, // Total skor P1
-            p2Health: newP2Health, // Sisa HP P2 setelah dipukul
-            nextQuestion: nextQ, // Soal baru hasil sinkronisasi
-          },
-        });
-      }
+      // ✅ Generate soal baru yang SAMA untuk dikirim ke lawan dengan leveling kesulitan
+      const nextDiff = getDifficultyForProgress(
+        timeRemaining,
+        activeDuration,
+        newTotal,
+      );
+      const nextQ = MathGenerator.generateQuestion(category, nextDiff);
 
-      setP1((prev) => ({
-        ...prev,
-        score: newScore,
-        combo: nextCombo,
-        currentAction: randomPunch,
-      }));
+      // ✅ Handle Instant Knockout Victory vs Normal Hit
+      if (isKnockoutWin) {
+        audio.playKnockout();
+        if (matchTimerRef.current) clearInterval(matchTimerRef.current);
+        if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
+        setFinishReason("ko_win");
+        triggerScreenShake("combo");
 
-      setP2((prev) => ({
-        ...prev,
-        health: newP2Health,
-        currentAction: "hit",
-      }));
+        // Broadcast Knockout ke lawan
+        if (gameChannelRef.current) {
+          gameChannelRef.current.send({
+            type: "broadcast",
+            event: "PLAYER_KNOCKOUT",
+            payload: {
+              winner: "p1",
+              senderName: playerName,
+              p1Score: newScore,
+              p2Score: p2.score,
+            },
+          });
+        }
 
-      setAnswerHistory((prev) => [
-        ...prev,
-        {
-          questionNumber: newTotal,
-          timeSeconds,
-          correct: newCorrect,
-          wrong: newWrong,
-          accuracy,
+        setP1((prev) => ({
+          ...prev,
+          health: healedP1Health,
           score: newScore,
-        },
-      ]);
+          combo: nextCombo,
+          currentAction: "taunt_crown",
+        }));
 
-      setTimeout(() => {
-        setP1((p) => ({ ...p, currentAction: "idle" }));
-        setP2((p) => ({ ...p, currentAction: "idle" }));
-      }, 400);
+        setP2((prev) => ({
+          ...prev,
+          health: 0,
+          currentAction: "knockdown",
+        }));
 
-      // Set soal baru secara lokal
-      setCurrentQuestion(nextQ);
+        setAnswerHistory((prev) => [
+          ...prev,
+          {
+            questionNumber: newTotal,
+            timeSeconds,
+            correct: newCorrect,
+            wrong: newWrong,
+            accuracy,
+            score: newScore,
+          },
+        ]);
+
+        setTimeout(() => {
+          setStage("game_over");
+        }, 600);
+      } else {
+        // ✅ Broadcast Payload Lengkap ke Lawan via Supabase Realtime
+        if (gameChannelRef.current) {
+          gameChannelRef.current.send({
+            type: "broadcast",
+            event: "PLAYER_ATTACK",
+            payload: {
+              punchType: randomPunch,
+              earnedScore,
+              totalScore: newScore, // Total skor P1
+              p1Health: healedP1Health, // Status HP P1 (termasuk heal)
+              p2Health: newP2Health, // Sisa HP P2 setelah dipukul
+              nextQuestion: nextQ, // Soal baru hasil sinkronisasi
+            },
+          });
+        }
+
+        setP1((prev) => ({
+          ...prev,
+          health: healedP1Health,
+          score: newScore,
+          combo: nextCombo,
+          currentAction: randomPunch,
+        }));
+
+        setP2((prev) => ({
+          ...prev,
+          health: newP2Health,
+          currentAction: "hit",
+        }));
+
+        setAnswerHistory((prev) => [
+          ...prev,
+          {
+            questionNumber: newTotal,
+            timeSeconds,
+            correct: newCorrect,
+            wrong: newWrong,
+            accuracy,
+            score: newScore,
+          },
+        ]);
+
+        setTimeout(() => {
+          setP1((p) => ({ ...p, currentAction: "idle" }));
+          setP2((p) => ({ ...p, currentAction: "idle" }));
+        }, 400);
+
+        // Set soal baru secara lokal
+        setCurrentQuestion(nextQ);
+      }
     } else {
       audio.playWrong();
       setWrongCount(newWrong);
@@ -747,8 +986,8 @@ export default function App() {
     }
 
     if (rematchStatus === "requested_by_opponent") {
-      // Lawan sudah mengajak rematch, kita setujui dan mulai pertandingan bersama!
-      const firstQ = MathGenerator.generateQuestion(category);
+      // Lawan sudah mengajak rematch, kita setujui dan mulai pertandingan bersama (mulai dari pemanasan easy)
+      const firstQ = MathGenerator.generateQuestion(category, "easy");
       try {
         gameChannelRef.current.send({
           type: "broadcast",
@@ -816,6 +1055,8 @@ export default function App() {
           lifetimeScore={lifetimeScore}
           selectedSkinId={selectedSkinId}
           onSelectSkin={handleSelectSkin}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={toggleFullscreen}
           onAddLifetimePoints={(pts) => {
             setLifetimeScore((prev) => {
               const updated = prev + pts;
@@ -870,20 +1111,34 @@ export default function App() {
               </div>
             </div>
 
-            {/* Match Timer */}
-            <div className="flex flex-col items-center px-2.5 py-0.5 bg-slate-950 border border-slate-800 rounded-lg shadow-inner">
-              <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold flex items-center gap-1 uppercase tracking-wider">
-                <Timer className="w-2.5 h-2.5 text-amber-400" /> WAKTU
-              </span>
-              <span
-                className={`font-arcade text-base sm:text-lg font-black leading-none ${
-                  timeRemaining <= (activeDuration <= 60 ? 10 : 20)
-                    ? "text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"
-                    : "text-slate-100"
-                }`}
+            {/* Match Timer & Fullscreen Quick Control */}
+            <div className="flex items-center gap-1.5">
+              <div className="flex flex-col items-center px-2.5 py-0.5 bg-slate-950 border border-slate-800 rounded-lg shadow-inner">
+                <span className="text-[8px] sm:text-[9px] text-slate-400 font-bold flex items-center gap-1 uppercase tracking-wider">
+                  <Timer className="w-2.5 h-2.5 text-amber-400" /> WAKTU
+                </span>
+                <span
+                  className={`font-arcade text-base sm:text-lg font-black leading-none ${
+                    timeRemaining <= (activeDuration <= 60 ? 10 : 20)
+                      ? "text-red-500 animate-pulse drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]"
+                      : "text-slate-100"
+                  }`}
+                >
+                  {formatTimer(timeRemaining)}
+                </span>
+              </div>
+
+              <button
+                onClick={toggleFullscreen}
+                className="p-1 sm:p-1.5 bg-slate-800/80 hover:bg-slate-700 rounded-lg border border-slate-700 text-amber-400 transition"
+                title={isFullscreen ? "Keluar Layar Penuh" : "Layar Penuh"}
               >
-                {formatTimer(timeRemaining)}
-              </span>
+                {isFullscreen ? (
+                  <Minimize2 className="w-3.5 h-3.5" />
+                ) : (
+                  <Maximize2 className="w-3.5 h-3.5" />
+                )}
+              </button>
             </div>
 
             {/* P2 Score & Avatar */}
@@ -935,9 +1190,20 @@ export default function App() {
               <LogOut className="w-3 h-3" /> KELUAR MATCH
             </button>
 
-            <span className="text-[9px] uppercase font-bold text-slate-600">
-              MATH BOXING ONLINE
-            </span>
+            <button
+              onClick={toggleFullscreen}
+              className="text-[9px] uppercase font-bold text-amber-400/80 hover:text-amber-300 flex items-center gap-1 transition"
+            >
+              {isFullscreen ? (
+                <>
+                  <Minimize2 className="w-3 h-3" /> NORMAL SCREEN
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3 h-3" /> FULLSCREEN MODE
+                </>
+              )}
+            </button>
           </div>
         </div>
       )}
@@ -951,6 +1217,7 @@ export default function App() {
           wrongCount={wrongCount}
           highestCombo={highestCombo}
           duration={activeDuration}
+          finishReason={finishReason}
           answerHistory={answerHistory}
           isMultiplayer={mode === "quick_match" || mode === "private_room"}
           rematchStatus={rematchStatus}

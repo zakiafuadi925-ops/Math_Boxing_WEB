@@ -24,6 +24,8 @@ import {
   Medal,
   Globe,
   RefreshCw,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -70,6 +72,8 @@ interface MainMenuProps {
   currentUser: PlayerProfile | null;
   onUserLogin: (user: PlayerProfile) => void;
   onUserLogout: () => void;
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
 }
 
 interface LeaderboardEntry {
@@ -173,6 +177,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   currentUser,
   onUserLogin,
   onUserLogout,
+  isFullscreen = false,
+  onToggleFullscreen,
 }) => {
   const [activeTab, setActiveTab] = useState<
     "arena" | "stats" | "leaderboard" | "skins"
@@ -537,6 +543,19 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           >
             <BookOpen className="w-5 h-5" />
           </button>
+          {onToggleFullscreen && (
+            <button
+              onClick={onToggleFullscreen}
+              className="p-2 bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 text-amber-400 transition"
+              title={isFullscreen ? "Keluar Layar Penuh" : "Layar Penuh (Mobile Friendly)"}
+            >
+              {isFullscreen ? (
+                <Minimize2 className="w-5 h-5" />
+              ) : (
+                <Maximize2 className="w-5 h-5" />
+              )}
+            </button>
+          )}
         </div>
       </div>
 

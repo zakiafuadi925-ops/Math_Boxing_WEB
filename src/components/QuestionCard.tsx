@@ -1,6 +1,6 @@
 import React from 'react';
 import { MathQuestion } from '../types';
-import { Sparkles, Trophy } from 'lucide-react';
+import { Sparkles, Trophy, Flame, Zap, Star } from 'lucide-react';
 
 interface QuestionCardProps {
   question: MathQuestion;
@@ -18,14 +18,40 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
     }
   };
 
+  const getDifficultyBadge = () => {
+    const diff = question.difficulty || 'easy';
+    if (diff === 'hard') {
+      return (
+        <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-red-950/90 text-red-400 border border-red-500/50 flex items-center gap-1 uppercase tracking-wider animate-pulse">
+          <Flame className="w-2.5 h-2.5 text-red-500" /> SULIT
+        </span>
+      );
+    }
+    if (diff === 'medium') {
+      return (
+        <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/90 text-amber-400 border border-amber-500/50 flex items-center gap-1 uppercase tracking-wider">
+          <Zap className="w-2.5 h-2.5 text-amber-400" /> MENENGAH
+        </span>
+      );
+    }
+    return (
+      <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/90 text-emerald-400 border border-emerald-500/50 flex items-center gap-1 uppercase tracking-wider">
+        <Star className="w-2.5 h-2.5 text-emerald-400" /> MUDAH
+      </span>
+    );
+  };
+
   return (
     <div className="w-full max-w-md mx-auto bg-slate-900/90 border border-slate-700/80 rounded-xl px-2.5 py-1.5 sm:py-2 shadow-lg text-center relative overflow-hidden">
       {/* Top Header Row */}
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700 uppercase tracking-wider flex items-center gap-1">
-          <Sparkles className="w-3 h-3" />
-          {getCategoryLabel(question.category)}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700 uppercase tracking-wider flex items-center gap-1">
+            <Sparkles className="w-3 h-3" />
+            {getCategoryLabel(question.category)}
+          </span>
+          {getDifficultyBadge()}
+        </div>
 
         <span className="text-[10px] sm:text-xs font-black px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 font-arcade">
           <Trophy className="w-3 h-3 text-amber-400" />
@@ -63,4 +89,5 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
     </div>
   );
 };
+
 

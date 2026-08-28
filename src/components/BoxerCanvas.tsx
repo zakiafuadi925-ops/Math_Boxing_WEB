@@ -41,14 +41,38 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
   const [popups, setPopups] = useState<DamagePopup[]>([]);
   const [p1HealthPulse, setP1HealthPulse] = useState(false);
   const [p2HealthPulse, setP2HealthPulse] = useState(false);
+  const [p1HealPulse, setP1HealPulse] = useState(false);
+  const [p2HealPulse, setP2HealPulse] = useState(false);
 
   const comboInfo = getComboMultiplier(combo);
 
-  // Health damage pulse triggers
+  // Health damage and heal pulse triggers
   useEffect(() => {
     if (p1.health < prevP1Health.current || lastHitBy === 'p2') {
       setP1HealthPulse(true);
       const timer = setTimeout(() => setP1HealthPulse(false), 550);
+      prevP1Health.current = p1.health;
+      return () => clearTimeout(timer);
+    } else if (p1.health > prevP1Health.current) {
+      // P1 Healed!
+      const healAmount = p1.health - prevP1Health.current;
+      setP1HealPulse(true);
+      const timer = setTimeout(() => setP1HealPulse(false), 800);
+
+      // Trigger floating Heal popup over P1
+      const jitterX = (Math.random() - 0.5) * 6;
+      const newPopup: DamagePopup = {
+        id: `p1-heal-${Date.now()}-${Math.random()}`,
+        x: 32 + jitterX,
+        y: 24,
+        scoreText: `+${healAmount} HP`,
+        subtext: '💚 3-COMBO HEAL!',
+        isCritical: true,
+        colorClass: 'text-emerald-300 drop-shadow-[0_4px_16px_rgba(52,211,153,1)] scale-110',
+        badgeBg: 'bg-emerald-950/90 border-emerald-400 text-emerald-300 ring-2 ring-emerald-500/50',
+        target: 'p1',
+      };
+      setPopups((prev) => [...prev, newPopup]);
       prevP1Health.current = p1.health;
       return () => clearTimeout(timer);
     }
@@ -59,6 +83,27 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
     if (p2.health < prevP2Health.current || lastHitBy === 'p1') {
       setP2HealthPulse(true);
       const timer = setTimeout(() => setP2HealthPulse(false), 550);
+      prevP2Health.current = p2.health;
+      return () => clearTimeout(timer);
+    } else if (p2.health > prevP2Health.current) {
+      // P2 Healed!
+      const healAmount = p2.health - prevP2Health.current;
+      setP2HealPulse(true);
+      const timer = setTimeout(() => setP2HealPulse(false), 800);
+
+      const jitterX = (Math.random() - 0.5) * 6;
+      const newPopup: DamagePopup = {
+        id: `p2-heal-${Date.now()}-${Math.random()}`,
+        x: 68 + jitterX,
+        y: 24,
+        scoreText: `+${healAmount} HP`,
+        subtext: '💚 RECOVERY!',
+        isCritical: true,
+        colorClass: 'text-emerald-300 drop-shadow-[0_4px_16px_rgba(52,211,153,1)] scale-110',
+        badgeBg: 'bg-emerald-950/90 border-emerald-400 text-emerald-300 ring-2 ring-emerald-500/50',
+        target: 'p2',
+      };
+      setPopups((prev) => [...prev, newPopup]);
       prevP2Health.current = p2.health;
       return () => clearTimeout(timer);
     }
@@ -248,7 +293,13 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
             <span className="w-2 h-2 rounded-full bg-red-500 inline-block shadow-sm shrink-0" />
             <span className="truncate">{p1.name}</span>
           </span>
-          <span className={`font-arcade font-bold transition-all ${p1HealthPulse ? 'text-red-400 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(239,68,68,1)]' : 'text-slate-300'}`}>
+          <span className={`font-arcade font-bold transition-all ${
+            p1HealthPulse
+              ? 'text-red-400 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(239,68,68,1)]'
+              : p1HealPulse
+              ? 'text-emerald-300 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(52,211,153,1)]'
+              : 'text-slate-300'
+          }`}>
             {p1.health}%
           </span>
         </div>
@@ -257,6 +308,8 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
           className={`w-full h-2.5 sm:h-3.5 bg-slate-950/90 rounded-full border p-0.5 transition-all duration-300 backdrop-blur-sm ${
             p1HealthPulse
               ? 'border-red-500 bg-red-950/90 shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse scale-105 ring-1 ring-red-400'
+              : p1HealPulse
+              ? 'border-emerald-400 bg-emerald-950/90 shadow-[0_0_20px_rgba(52,211,153,1)] animate-pulse scale-105 ring-1 ring-emerald-400'
               : 'border-slate-700/80 shadow-md'
           }`}
         >
@@ -265,6 +318,8 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
             className={`h-full rounded-full transition-all duration-300 ${
               p1HealthPulse
                 ? 'bg-gradient-to-r from-red-600 via-yellow-200 to-red-400 animate-pulse'
+                : p1HealPulse
+                ? 'bg-gradient-to-r from-emerald-500 via-teal-300 to-emerald-400 animate-pulse'
                 : p1.health <= 30
                 ? 'bg-red-600 animate-pulse'
                 : 'bg-gradient-to-r from-red-600 via-amber-500 to-emerald-500'
@@ -294,7 +349,13 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
       {/* Top Right P2 Arcade Health Bar HUD */}
       <div className="absolute top-1.5 right-2 sm:top-2.5 sm:right-3 z-30 pointer-events-none flex flex-col items-end gap-0.5 w-24 sm:w-36 select-none">
         <div className="flex items-center justify-between w-full text-[9px] sm:text-xs font-black uppercase tracking-wider text-slate-200">
-          <span className={`font-arcade font-bold transition-all ${p2HealthPulse ? 'text-red-400 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(239,68,68,1)]' : 'text-slate-300'}`}>
+          <span className={`font-arcade font-bold transition-all ${
+            p2HealthPulse
+              ? 'text-red-400 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(239,68,68,1)]'
+              : p2HealPulse
+              ? 'text-emerald-300 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(52,211,153,1)]'
+              : 'text-slate-300'
+          }`}>
             {p2.health}%
           </span>
           <span className="flex items-center gap-1 font-arcade truncate max-w-[65px] sm:max-w-[100px] justify-end">
@@ -307,6 +368,8 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
           className={`w-full h-2.5 sm:h-3.5 bg-slate-950/90 rounded-full border p-0.5 transition-all duration-300 backdrop-blur-sm ${
             p2HealthPulse
               ? 'border-red-500 bg-red-950/90 shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse scale-105 ring-1 ring-red-400'
+              : p2HealPulse
+              ? 'border-emerald-400 bg-emerald-950/90 shadow-[0_0_20px_rgba(52,211,153,1)] animate-pulse scale-105 ring-1 ring-emerald-400'
               : 'border-slate-700/80 shadow-md'
           }`}
         >
@@ -315,6 +378,8 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
             className={`h-full rounded-full transition-all duration-300 ml-auto ${
               p2HealthPulse
                 ? 'bg-gradient-to-r from-blue-600 via-yellow-200 to-red-500 animate-pulse'
+                : p2HealPulse
+                ? 'bg-gradient-to-r from-emerald-500 via-teal-300 to-emerald-400 animate-pulse'
                 : p2.health <= 30
                 ? 'bg-red-600 animate-pulse'
                 : 'bg-gradient-to-r from-blue-600 via-cyan-400 to-emerald-400'
