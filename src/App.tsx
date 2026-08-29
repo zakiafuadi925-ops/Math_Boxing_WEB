@@ -1284,6 +1284,7 @@ export default function App() {
           isMultiplayer={mode === "quick_match" || mode === "private_room"}
           rematchStatus={rematchStatus}
           opponentLeft={opponentLeft}
+          lifetimeScore={lifetimeScore}
           onRematch={handleRematchClick}
           onExit={handleExitMatch}
         />

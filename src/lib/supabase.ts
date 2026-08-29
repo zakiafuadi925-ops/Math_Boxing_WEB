@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { calculateBadge, getRankTierByScore } from "../utils/ranks";
 
 // Client-side fallback configuration
 const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
@@ -359,18 +360,10 @@ export const signOutPlayer = async () => {
   }
 };
 
-// Helper untuk menghitung badge rank berdasarkan score
-export const calculateBadge = (score: number): string => {
-  if (score >= 500) return "Grandmaster";
-  if (score >= 350) return "Master";
-  if (score >= 250) return "Diamond";
-  if (score >= 150) return "Platinum";
-  if (score >= 50) return "Gold";
-  return "Pemula";
-};
+export { calculateBadge, getRankTierByScore };
 
 // Client-side fallback / local storage key
-const LOCAL_LEADERBOARD_KEY = "mb_synced_leaderboard";
+const LOCAL_LEADERBOARD_KEY = "mb_synced_leaderboard_v2";
 
 // Mengambil data leaderboard dari Supabase Server API (/api/leaderboard) atau Local Cache
 export const fetchGlobalLeaderboard = async (
@@ -425,63 +418,107 @@ export const fetchGlobalLeaderboard = async (
       list = [
         {
           id: "lb-init-1",
-          name: "Budi Math-Champ",
-          avatar: "🥇",
-          score: 480,
-          winRate: 96,
-          badge: "Grandmaster",
+          name: "Prof. Einstein Junior",
+          avatar: "🎓",
+          score: 112500,
+          winRate: 98,
+          badge: calculateBadge(112500),
           status: "online",
-          categoryLabel: "Aritmatika",
-          totalGames: 42,
-          totalWins: 40,
+          categoryLabel: "Semua Materi",
+          totalGames: 520,
+          totalWins: 510,
+          highestCombo: 35,
         },
         {
           id: "lb-init-2",
-          name: "Siti Speed-Math",
-          avatar: "🥈",
-          score: 410,
-          winRate: 92,
-          badge: "Master",
-          status: "in_match",
-          categoryLabel: "Aljabar",
-          totalGames: 36,
-          totalWins: 33,
+          name: "Dr. Budi Math-Champ",
+          avatar: "🔬",
+          score: 92400,
+          winRate: 95,
+          badge: calculateBadge(92400),
+          status: "online",
+          categoryLabel: "Aritmatika",
+          totalGames: 430,
+          totalWins: 410,
+          highestCombo: 28,
         },
         {
           id: "lb-init-3",
-          name: "Rizky KO-Striker",
-          avatar: "🥉",
-          score: 360,
-          winRate: 88,
-          badge: "Diamond",
-          status: "online",
-          categoryLabel: "Akar Pangkat",
-          totalGames: 30,
-          totalWins: 26,
+          name: "Cendekiawan Siti",
+          avatar: "⚡",
+          score: 76500,
+          winRate: 92,
+          badge: calculateBadge(76500),
+          status: "in_match",
+          categoryLabel: "Aljabar",
+          totalGames: 340,
+          totalWins: 312,
+          highestCombo: 24,
         },
         {
           id: "lb-init-4",
-          name: "Ahmad Speed-Calc",
-          avatar: "🥊",
-          score: 310,
-          winRate: 85,
-          badge: "Platinum",
-          status: "offline",
-          categoryLabel: "Fisika Dasar",
-          totalGames: 25,
-          totalWins: 21,
+          name: "Grandmaster Rizky",
+          avatar: "👑",
+          score: 58200,
+          winRate: 89,
+          badge: calculateBadge(58200),
+          status: "online",
+          categoryLabel: "Geometri",
+          totalGames: 260,
+          totalWins: 232,
+          highestCombo: 20,
         },
         {
           id: "lb-init-5",
-          name: "Dewi Formula-Pro",
-          avatar: "⚡",
-          score: 275,
-          winRate: 81,
-          badge: "Gold",
+          name: "Master Ahmad",
+          avatar: "💎",
+          score: 38500,
+          winRate: 85,
+          badge: calculateBadge(38500),
+          status: "offline",
+          categoryLabel: "Akar Pangkat",
+          totalGames: 180,
+          totalWins: 153,
+          highestCombo: 18,
+        },
+        {
+          id: "lb-init-6",
+          name: "Pendekar Dewi",
+          avatar: "🥇",
+          score: 21800,
+          winRate: 82,
+          badge: calculateBadge(21800),
           status: "online",
-          categoryLabel: "Geometri",
+          categoryLabel: "Fisika Dasar",
+          totalGames: 110,
+          totalWins: 90,
+          highestCombo: 15,
+        },
+        {
+          id: "lb-init-7",
+          name: "Ksatria Fajar",
+          avatar: "🥈",
+          score: 8450,
+          winRate: 78,
+          badge: calculateBadge(8450),
+          status: "online",
+          categoryLabel: "Counting",
+          totalGames: 55,
+          totalWins: 43,
+          highestCombo: 11,
+        },
+        {
+          id: "lb-init-8",
+          name: "Murid Nadia",
+          avatar: "🥉",
+          score: 2800,
+          winRate: 70,
+          badge: calculateBadge(2800),
+          status: "offline",
+          categoryLabel: "Aritmatika",
           totalGames: 22,
-          totalWins: 18,
+          totalWins: 16,
+          highestCombo: 8,
         },
       ];
       localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(list));

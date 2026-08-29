@@ -48,6 +48,13 @@ import {
   DailyChallengeState,
 } from "../utils/dailyChallenges";
 import { LoginModal } from "./LoginModal";
+import { RankRoadmapModal } from "./RankRoadmapModal";
+import {
+  getRankProgress,
+  getRankTierByScore,
+  RANK_TIERS,
+  RankTier,
+} from "../utils/ranks";
 import {
   PlayerProfile,
   LeaderboardEntry,
@@ -105,6 +112,15 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   const [showPrivateModal, setShowPrivateModal] = useState(false);
   const [showDailyModal, setShowDailyModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showRankRoadmap, setShowRankRoadmap] = useState(false);
+  const [selectedLeaderboardTier, setSelectedLeaderboardTier] = useState<string>("all");
+
+  const rankProgress = useMemo(() => {
+    return getRankProgress(lifetimeScore);
+  }, [lifetimeScore]);
+
+  const currentTier = rankProgress.currentTier;
+
   const [dailyState, setDailyState] = useState<DailyChallengeState>(() =>
     loadDailyChallengeState(),
   );
@@ -397,7 +413,29 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           </div>
         </button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Rank Badge Button */}
+          <button
+            onClick={() => {
+              audio.playClick();
+              setShowRankRoadmap(true);
+            }}
+            className={`p-1.5 sm:px-2.5 sm:py-1 rounded-xl border flex items-center gap-1.5 transition active:scale-95 shadow-sm group ${currentTier.badgeBg} ${currentTier.badgeBorder}`}
+            title="Klik untuk Lihat Jenjang Pangkat & Syarat Skor"
+          >
+            <span className="text-base sm:text-lg group-hover:scale-110 transition shrink-0">
+              {currentTier.icon}
+            </span>
+            <div className="text-left hidden sm:block">
+              <span className={`font-arcade text-[10px] font-bold block leading-none ${currentTier.badgeText}`}>
+                {currentTier.shortName}
+              </span>
+              <span className="text-[9px] text-slate-400 font-mono leading-none">
+                {lifetimeScore.toLocaleString("id-ID")} PTS
+              </span>
+            </div>
+          </button>
+
           <button
             onClick={() => {
               audio.playClick();
@@ -525,6 +563,83 @@ export const MainMenu: React.FC<MainMenuProps> = ({
       {/* TAB 1: ARENA BERMAIN */}
       {activeTab === "arena" && (
         <div className="w-full space-y-3">
+          {/* Rank Progression Banner (Road to Professor) */}
+          <div className="w-full p-3.5 bg-gradient-to-r from-slate-900 via-amber-950/30 to-slate-900 border-2 border-amber-500/40 rounded-2xl shadow-lg relative overflow-hidden">
+            <div className="flex items-center justify-between gap-3 mb-2.5">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl border-2 ${currentTier.badgeBorder} ${currentTier.badgeBg} shadow-md shrink-0`}
+                >
+                  {currentTier.icon}
+                </div>
+                <div className="text-left">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-arcade text-xs font-bold text-amber-400 uppercase tracking-wide">
+                      {currentTier.name}
+                    </span>
+                    <span className="text-[9px] bg-amber-950 text-amber-300 font-bold px-1.5 py-0.2 rounded border border-amber-600">
+                      LVL {currentTier.level}/9
+                    </span>
+                  </div>
+                  <span className="text-xs text-slate-300 font-medium block">
+                    {currentTier.belt} •{" "}
+                    <strong className="text-amber-400 font-mono">
+                      {lifetimeScore.toLocaleString("id-ID")} PTS
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  audio.playClick();
+                  setShowRankRoadmap(true);
+                }}
+                className="py-1.5 px-2.5 bg-slate-800 hover:bg-slate-700 border border-amber-500/40 text-amber-400 hover:text-amber-300 font-arcade font-bold text-[11px] rounded-xl shadow transition active:scale-95 shrink-0 flex items-center gap-1"
+                title="Buka Daftar 9 Pangkat & Bonus"
+              >
+                <Trophy className="w-3.5 h-3.5" />
+                <span>ROADMAP</span>
+              </button>
+            </div>
+
+            {/* Progress Bar towards next tier */}
+            <div className="w-full bg-slate-950/80 rounded-xl p-2 border border-slate-800/80">
+              <div className="flex items-center justify-between text-[11px] text-slate-300 mb-1">
+                <span className="text-slate-400">
+                  {rankProgress.nextTier ? (
+                    <>
+                      Menuju:{" "}
+                      <strong className="text-slate-200">
+                        {rankProgress.nextTier.icon} {rankProgress.nextTier.name}
+                      </strong>{" "}
+                      (Sisa{" "}
+                      <span className="text-amber-400 font-bold font-mono">
+                        {rankProgress.pointsNeeded.toLocaleString("id-ID")} PTS
+                      </span>
+                      )
+                    </>
+                  ) : (
+                    <span className="text-yellow-300 font-bold flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-yellow-400 animate-spin" />
+                      Pangkat Tertinggi Tercapai! (Profesor Matematika 100.000+ PTS)
+                    </span>
+                  )}
+                </span>
+                <span className="text-amber-400 font-bold font-mono">
+                  {rankProgress.percentage}%
+                </span>
+              </div>
+
+              <div className="w-full h-2.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-0.5">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full transition-all duration-500 shadow-sm"
+                  style={{ width: `${rankProgress.percentage}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Daily Challenge Card Banner */}
           <div className="w-full p-3.5 bg-gradient-to-r from-slate-900 via-amber-950/40 to-slate-900 border-2 border-amber-500/40 rounded-2xl shadow-lg flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -1171,7 +1286,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           {/* User Current Live Rank Highlight Card */}
           <div className="bg-gradient-to-r from-amber-950/70 via-slate-900 to-slate-900 border-2 border-amber-500/60 rounded-2xl p-3.5 flex items-center justify-between shadow-lg">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center font-arcade font-black text-slate-950 text-xl shadow-md border border-amber-300">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-amber-500 to-yellow-300 flex items-center justify-center font-arcade font-black text-slate-950 text-xl shadow-md border border-amber-300 shrink-0">
                 #{currentUserRank}
               </div>
               <div>
@@ -1184,30 +1299,91 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   </span>
                 </div>
                 <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-300">
-                  <span className="text-amber-400 font-bold">
-                    {lifetimeScore} PTS
+                  <span className="text-amber-400 font-bold font-mono">
+                    {lifetimeScore.toLocaleString("id-ID")} PTS
                   </span>
                   <span className="text-slate-500">•</span>
-                  <span className="text-slate-400 text-[11px]">
-                    Kategori: {selectedCategory.toUpperCase()}
+                  <span className="text-slate-300 text-[11px] flex items-center gap-1">
+                    <span>{currentTier.icon}</span>
+                    <span>{currentTier.name}</span>
                   </span>
                 </div>
               </div>
             </div>
 
             <div className="text-right">
-              <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 font-arcade text-[10px] font-bold block">
-                {lifetimeScore >= 350
-                  ? "MASTER"
-                  : lifetimeScore >= 150
-                    ? "DIAMOND"
-                    : "PETINJU KELAS"}
-              </span>
+              <button
+                onClick={() => {
+                  audio.playClick();
+                  setShowRankRoadmap(true);
+                }}
+                className={`px-2.5 py-1 rounded-lg border font-arcade text-[10px] font-bold block transition hover:scale-105 active:scale-95 ${currentTier.badgeBg} ${currentTier.badgeBorder} ${currentTier.badgeText}`}
+              >
+                {currentTier.icon} {currentTier.shortName.toUpperCase()}
+              </button>
               <span className="text-[10px] text-slate-400 block mt-1">
-                Peringkat #{currentUserRank} dari {computedLeaderboard.length}{" "}
-                Pemain
+                Peringkat #{currentUserRank} dari {computedLeaderboard.length} Pemain
               </span>
             </div>
+          </div>
+
+          {/* Rank Tier Roadmap Info Button */}
+          <button
+            onClick={() => {
+              audio.playClick();
+              setShowRankRoadmap(true);
+            }}
+            className="w-full p-2.5 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 hover:from-slate-800 hover:to-slate-850 border border-amber-500/40 rounded-xl flex items-center justify-between text-xs text-amber-300 font-medium transition active:scale-[0.99] group shadow"
+          >
+            <div className="flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-amber-400 group-hover:scale-110 transition" />
+              <span>
+                <strong>Road to Profesor Matematika (100.000+ PTS):</strong> Lihat 9 Jenjang Pangkat & Syarat Skor
+              </span>
+            </div>
+            <span className="font-arcade text-[10px] bg-amber-500 text-slate-950 px-2 py-0.5 rounded font-black">
+              BUKA
+            </span>
+          </button>
+
+          {/* Division Filter Pills */}
+          <div className="w-full overflow-x-auto pb-1 flex items-center gap-1.5 no-scrollbar">
+            <button
+              onClick={() => {
+                audio.playClick();
+                setSelectedLeaderboardTier("all");
+              }}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition ${
+                selectedLeaderboardTier === "all"
+                  ? "bg-amber-500 text-slate-950 shadow"
+                  : "bg-slate-800/80 text-slate-300 hover:bg-slate-700"
+              }`}
+            >
+              Semua Divisi ({computedLeaderboard.length})
+            </button>
+            {RANK_TIERS.map((tier) => {
+              const count = computedLeaderboard.filter(
+                (e) => getRankTierByScore(e.score).id === tier.id
+              ).length;
+              return (
+                <button
+                  key={tier.id}
+                  onClick={() => {
+                    audio.playClick();
+                    setSelectedLeaderboardTier(tier.id);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition flex items-center gap-1 ${
+                    selectedLeaderboardTier === tier.id
+                      ? `${tier.badgeBg} ${tier.badgeBorder} ${tier.badgeText} border ring-1 ring-amber-400/40`
+                      : "bg-slate-900/90 text-slate-400 hover:text-slate-200 border border-slate-800"
+                  }`}
+                >
+                  <span>{tier.icon}</span>
+                  <span>{tier.shortName}</span>
+                  <span className="text-[10px] opacity-70">({count})</span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Top 3 Podium Highlights */}
@@ -1225,11 +1401,11 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   <span className="font-bold text-xs text-slate-200 block truncate">
                     {computedLeaderboard[1].name}
                   </span>
-                  <span className="text-[10px] text-amber-400 font-bold block">
-                    {computedLeaderboard[1].score} PTS
+                  <span className="text-[10px] text-amber-400 font-bold block font-mono">
+                    {computedLeaderboard[1].score.toLocaleString("id-ID")} PTS
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
-                    {computedLeaderboard[1].badge}
+                  <span className="text-[9px] text-slate-400 block truncate">
+                    {getRankTierByScore(computedLeaderboard[1].score).shortName}
                   </span>
                 </div>
               </div>
@@ -1237,7 +1413,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
 
             {/* Rank 1 - Gold Champion */}
             {computedLeaderboard[0] && (
-              <div className="bg-gradient-to-b from-amber-950/90 to-slate-900 border-2 border-amber-400 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow-xl scale-105 z-10">
+              <div className="bg-gradient-to-b from-amber-950/90 to-slate-900 border-2 border-yellow-400 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow-xl scale-105 z-10">
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                   <Crown className="w-7 h-7 text-yellow-300 fill-yellow-400 drop-shadow-[0_2px_8px_rgba(250,204,21,0.8)]" />
                 </div>
@@ -1248,11 +1424,11 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   <span className="font-arcade text-xs font-black text-amber-300 block truncate">
                     {computedLeaderboard[0].name}
                   </span>
-                  <span className="text-xs text-yellow-300 font-black block mt-0.5">
-                    {computedLeaderboard[0].score} PTS
+                  <span className="text-xs text-yellow-300 font-black block mt-0.5 font-mono">
+                    {computedLeaderboard[0].score.toLocaleString("id-ID")} PTS
                   </span>
-                  <span className="text-[9px] text-amber-200/80 font-semibold block">
-                    {computedLeaderboard[0].badge}
+                  <span className="text-[9px] text-yellow-300 font-semibold block truncate">
+                    {getRankTierByScore(computedLeaderboard[0].score).name}
                   </span>
                 </div>
               </div>
@@ -1271,11 +1447,11 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   <span className="font-bold text-xs text-slate-200 block truncate">
                     {computedLeaderboard[2].name}
                   </span>
-                  <span className="text-[10px] text-amber-400 font-bold block">
-                    {computedLeaderboard[2].score} PTS
+                  <span className="text-[10px] text-amber-400 font-bold block font-mono">
+                    {computedLeaderboard[2].score.toLocaleString("id-ID")} PTS
                   </span>
-                  <span className="text-[9px] text-slate-500 block">
-                    {computedLeaderboard[2].badge}
+                  <span className="text-[9px] text-slate-400 block truncate">
+                    {getRankTierByScore(computedLeaderboard[2].score).shortName}
                   </span>
                 </div>
               </div>
@@ -1290,93 +1466,107 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <span>PETINJU</span>
               </div>
               <div className="flex items-center gap-6">
-                <span>DIVISI</span>
+                <span>DIVISI PANGKAT</span>
                 <span>TOTAL SKOR</span>
               </div>
             </div>
 
             <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-              {computedLeaderboard.map((entry) => (
-                <div
-                  key={entry.id}
-                  className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
-                    entry.isCurrentUser
-                      ? "bg-amber-500/10 border-amber-400/80 shadow-md"
-                      : "bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/40"
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center font-arcade font-bold text-xs flex-shrink-0 ${
-                        entry.rank === 1
-                          ? "bg-yellow-400 text-slate-950 shadow-md"
-                          : entry.rank === 2
-                            ? "bg-slate-300 text-slate-950"
-                            : entry.rank === 3
-                              ? "bg-amber-700 text-white"
-                              : "bg-slate-800 text-slate-300"
+              {computedLeaderboard
+                .filter((entry) => {
+                  if (selectedLeaderboardTier === "all") return true;
+                  return (
+                    getRankTierByScore(entry.score).id ===
+                    selectedLeaderboardTier
+                  );
+                })
+                .map((entry) => {
+                  const entryTier = getRankTierByScore(entry.score);
+                  return (
+                    <div
+                      key={entry.id}
+                      className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
+                        entry.isCurrentUser
+                          ? "bg-amber-500/10 border-amber-400/80 shadow-md ring-1 ring-amber-400/30"
+                          : "bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/40"
                       }`}
                     >
-                      #{entry.rank}
-                    </span>
-                    <span className="text-lg flex-shrink-0">
-                      {entry.avatar}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 truncate">
+                      <div className="flex items-center gap-3 min-w-0">
                         <span
-                          className={`font-bold text-xs truncate ${
-                            entry.isCurrentUser
-                              ? "text-amber-300 font-black"
-                              : "text-slate-200"
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center font-arcade font-bold text-xs flex-shrink-0 ${
+                            entry.rank === 1
+                              ? "bg-yellow-400 text-slate-950 shadow-md font-black"
+                              : entry.rank === 2
+                                ? "bg-slate-300 text-slate-950 font-black"
+                                : entry.rank === 3
+                                  ? "bg-amber-700 text-white font-black"
+                                  : "bg-slate-800 text-slate-300"
                           }`}
                         >
-                          {entry.name}
+                          #{entry.rank}
                         </span>
-                        {entry.isCurrentUser && (
-                          <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 font-arcade text-[8px] font-bold">
-                            YOU
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
-                        <span className="flex items-center gap-1">
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              entry.status === "online"
-                                ? "bg-emerald-400"
+                        <span className="text-lg flex-shrink-0">
+                          {entry.avatar}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <span
+                              className={`font-bold text-xs truncate ${
+                                entry.isCurrentUser
+                                  ? "text-amber-300 font-black"
+                                  : "text-slate-200"
+                              }`}
+                            >
+                              {entry.name}
+                            </span>
+                            {entry.isCurrentUser && (
+                              <span className="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 font-arcade text-[8px] font-bold">
+                                YOU
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-0.5">
+                            <span className="flex items-center gap-1">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  entry.status === "online"
+                                    ? "bg-emerald-400"
+                                    : entry.status === "in_match"
+                                      ? "bg-amber-400 animate-pulse"
+                                      : "bg-slate-600"
+                                }`}
+                              />
+                              {entry.status === "online"
+                                ? "Online"
                                 : entry.status === "in_match"
-                                  ? "bg-amber-400 animate-pulse"
-                                  : "bg-slate-600"
-                            }`}
-                          />
-                          {entry.status === "online"
-                            ? "Online"
-                            : entry.status === "in_match"
-                              ? "Bertarung"
-                              : "Offline"}
+                                  ? "Bertarung"
+                                  : "Offline"}
+                            </span>
+                            <span>•</span>
+                            <span>{entry.winRate}% Win</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 text-right flex-shrink-0">
+                        <span
+                          className={`px-2 py-0.5 rounded-md text-[10px] font-bold border hidden sm:inline-flex items-center gap-1 ${entryTier.badgeBg} ${entryTier.badgeBorder} ${entryTier.badgeText}`}
+                        >
+                          <span>{entryTier.icon}</span>
+                          <span>{entryTier.shortName}</span>
                         </span>
-                        <span>•</span>
-                        <span>{entry.winRate}% Win</span>
+                        <div className="min-w-[64px]">
+                          <span className="font-arcade text-xs font-bold text-amber-400 block font-mono">
+                            {entry.score.toLocaleString("id-ID")}
+                          </span>
+                          <span className="text-[9px] text-slate-500 block">
+                            PTS
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-4 text-right flex-shrink-0">
-                    <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-medium hidden sm:inline-block">
-                      {entry.badge}
-                    </span>
-                    <div className="w-16">
-                      <span className="font-arcade text-sm font-bold text-amber-400 block">
-                        {entry.score}
-                      </span>
-                      <span className="text-[9px] text-slate-500 block">
-                        PTS
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  );
+                })}
             </div>
           </div>
         </div>
@@ -1644,6 +1834,14 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           onUserLogout();
           setShowLoginModal(false);
         }}
+      />
+
+      {/* Rank Progression Roadmap Modal */}
+      <RankRoadmapModal
+        isOpen={showRankRoadmap}
+        onClose={() => setShowRankRoadmap(false)}
+        lifetimeScore={lifetimeScore}
+        playerName={currentUser?.displayName || currentUser?.name || playerName || "Pemain Kamu"}
       />
     </div>
   );

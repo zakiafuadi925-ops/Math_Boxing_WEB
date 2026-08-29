@@ -15,6 +15,7 @@ import { PlayerState, AnswerHistoryPoint, ActionType, GameDuration } from '../ty
 import { audio } from '../utils/audio';
 import { BoxerCanvas } from './BoxerCanvas';
 import { EmoteBar } from './EmoteBar';
+import { getRankProgress } from '../utils/ranks';
 
 interface GameOverModalProps {
   p1: PlayerState;
@@ -29,6 +30,7 @@ interface GameOverModalProps {
   isMultiplayer?: boolean;
   rematchStatus?: 'idle' | 'requested_by_me' | 'requested_by_opponent';
   opponentLeft?: boolean;
+  lifetimeScore?: number;
   onRematch: () => void;
   onExit: () => void;
 }
@@ -46,12 +48,18 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   isMultiplayer = false,
   rematchStatus = 'idle',
   opponentLeft = false,
+  lifetimeScore = 0,
   onRematch,
   onExit,
 }) => {
   const isP1Winner = finishReason === "ko_win" ? true : finishReason === "ko_loss" ? false : p1.score > p2.score;
   const isDraw = finishReason === "time_up" && p1.score === p2.score;
   const isKnockout = finishReason === "ko_win" || finishReason === "ko_loss";
+
+  const rankProgress = React.useMemo(() => {
+    return getRankProgress(lifetimeScore);
+  }, [lifetimeScore]);
+  const currentTier = rankProgress.currentTier;
 
   const [victoryEmote, setVictoryEmote] = useState<ActionType>(
     isP1Winner ? 'taunt_crown' : 'idle'
@@ -181,6 +189,53 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             <span className="text-xs text-slate-400 font-bold block">{p2.name} (P2)</span>
             <span className="font-arcade text-2xl sm:text-3xl text-blue-400 block mt-0.5">{p2.score}</span>
             <span className="text-[10px] text-slate-400 font-semibold">SKOR AKHIR</span>
+          </div>
+        </div>
+
+        {/* Player Rank Progression Summary */}
+        <div className="my-3 bg-gradient-to-r from-slate-950 via-amber-950/20 to-slate-950 border border-amber-500/40 rounded-2xl p-3 text-left">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-2xl">{currentTier.icon}</span>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-arcade text-xs font-bold text-amber-400 uppercase">
+                    {currentTier.name}
+                  </span>
+                  <span className="text-[9px] bg-amber-950 text-amber-300 font-bold px-1.5 py-0.2 rounded border border-amber-600">
+                    LVL {currentTier.level}/9
+                  </span>
+                </div>
+                <span className="text-[11px] text-slate-300 font-mono">
+                  Total Karir: <strong className="text-amber-400">{lifetimeScore.toLocaleString("id-ID")} PTS</strong>
+                </span>
+              </div>
+            </div>
+            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border ${currentTier.badgeBg} ${currentTier.badgeBorder} ${currentTier.badgeText}`}>
+              {currentTier.shortName}
+            </span>
+          </div>
+
+          {/* Progress Bar */}
+          <div className="w-full bg-slate-900/90 rounded-lg p-1.5 border border-slate-800">
+            <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+              <span>
+                {rankProgress.nextTier ? (
+                  <>
+                    Menuju: <strong className="text-slate-200">{rankProgress.nextTier.icon} {rankProgress.nextTier.name}</strong> (sisa <span className="text-amber-400 font-bold font-mono">{rankProgress.pointsNeeded.toLocaleString("id-ID")} PTS</span>)
+                  </>
+                ) : (
+                  <span className="text-yellow-300 font-bold">⭐ Pangkat Tertinggi: Profesor Matematika (100.000+ PTS)</span>
+                )}
+              </span>
+              <span className="text-amber-400 font-mono font-bold">{rankProgress.percentage}%</span>
+            </div>
+            <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+              <div
+                className="h-full bg-gradient-to-r from-amber-500 to-yellow-400 rounded-full transition-all duration-500"
+                style={{ width: `${rankProgress.percentage}%` }}
+              />
+            </div>
           </div>
         </div>
 
