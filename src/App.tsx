@@ -14,7 +14,12 @@ import { MathGenerator } from "./utils/mathGenerator";
 import { audio } from "./utils/audio";
 import { BOXER_SKINS } from "./utils/skins";
 import { recordMatchToChallenges } from "./utils/dailyChallenges";
-import { supabase, PlayerProfile, getCurrentUserProfile } from "./lib/supabase";
+import {
+  supabase,
+  PlayerProfile,
+  getCurrentUserProfile,
+  saveMatchScoreToLeaderboard,
+} from "./lib/supabase";
 import { RealtimeChannel } from "@supabase/supabase-js";
 
 import { MainMenu } from "./components/MainMenu";
@@ -608,13 +613,15 @@ export default function App() {
     };
   }, [stage]);
 
-  // Update Lifetime Score & Match History
+  // Update Lifetime Score, Leaderboard & Match History
   useEffect(() => {
     if (stage === "game_over") {
       // NOTE: We do NOT remove gameChannelRef.current here so players can still communicate
       // and trigger synchronized rematches from the GameOver screen.
 
+      let finalLifetime = lifetimeScore;
       if (p1.score > 0) {
+        finalLifetime = lifetimeScore + p1.score;
         setLifetimeScore((prevTotal) => {
           const updated = prevTotal + p1.score;
           localStorage.setItem("mb_lifetime_score", updated.toString());
@@ -653,6 +660,20 @@ export default function App() {
       } catch (e) {
         console.error("Failed to save match history:", e);
       }
+
+      // ✅ Otomatis simpan skor & match history ke database Supabase / leaderboard
+      saveMatchScoreToLeaderboard({
+        playerName: currentUser?.displayName || currentUser?.name || playerName || "Player 1",
+        opponentName: p2.name,
+        scoreEarned: p1.score,
+        opponentScore: p2.score,
+        newLifetimeScore: finalLifetime,
+        matchResult,
+        category,
+        avatar: currentUser?.photoURL || currentUser?.avatar_url || "🥊",
+        highestCombo,
+        roomId: roomCode || undefined,
+      });
 
       recordMatchToChallenges({
         result: matchResult,
@@ -1075,6 +1096,18 @@ export default function App() {
             setLifetimeScore((prev) => {
               const updated = prev + pts;
               localStorage.setItem("mb_lifetime_score", updated.toString());
+              saveMatchScoreToLeaderboard({
+                playerName:
+                  currentUser?.displayName ||
+                  currentUser?.name ||
+                  playerName ||
+                  "Player 1",
+                scoreEarned: pts,
+                newLifetimeScore: updated,
+                matchResult: "win",
+                category,
+                avatar: currentUser?.photoURL || currentUser?.avatar_url || "🥊",
+              });
               return updated;
             });
           }}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Swords,
   Bot,
@@ -48,7 +48,11 @@ import {
   DailyChallengeState,
 } from "../utils/dailyChallenges";
 import { LoginModal } from "./LoginModal";
-import { PlayerProfile } from "../lib/supabase";
+import {
+  PlayerProfile,
+  LeaderboardEntry,
+  fetchGlobalLeaderboard,
+} from "../lib/supabase";
 import { User, LogIn, ShieldCheck, Timer } from "lucide-react";
 
 interface MainMenuProps {
@@ -75,92 +79,6 @@ interface MainMenuProps {
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
 }
-
-interface LeaderboardEntry {
-  id: string;
-  rank?: number;
-  name: string;
-  avatar: string;
-  score: number;
-  winRate: number;
-  badge: string;
-  isCurrentUser?: boolean;
-  status: "online" | "in_match" | "offline";
-  categoryLabel?: string;
-}
-
-const DEFAULT_MOCK_LEADERBOARD: LeaderboardEntry[] = [
-  {
-    id: "lb-1",
-    name: "Budi Math-Champ",
-    avatar: "🥇",
-    score: 480,
-    winRate: 96,
-    badge: "Grandmaster",
-    status: "online",
-    categoryLabel: "Aritmatika",
-  },
-  {
-    id: "lb-2",
-    name: "Siti Speed-Math",
-    avatar: "🥈",
-    score: 410,
-    winRate: 92,
-    badge: "Master",
-    status: "in_match",
-    categoryLabel: "Aljabar",
-  },
-  {
-    id: "lb-3",
-    name: "Rizky KO-Striker",
-    avatar: "🥉",
-    score: 360,
-    winRate: 88,
-    badge: "Diamond",
-    status: "online",
-    categoryLabel: "Akar Pangkat",
-  },
-  {
-    id: "lb-4",
-    name: "Ahmad Speed-Calc",
-    avatar: "🥊",
-    score: 310,
-    winRate: 85,
-    badge: "Platinum",
-    status: "offline",
-    categoryLabel: "Fisika Dasar",
-  },
-  {
-    id: "lb-5",
-    name: "Dewi Formula-Pro",
-    avatar: "⚡",
-    score: 275,
-    winRate: 81,
-    badge: "Gold",
-    status: "online",
-    categoryLabel: "Geometri",
-  },
-  {
-    id: "lb-6",
-    name: "Fajar Smart-Kid",
-    avatar: "🧠",
-    score: 230,
-    winRate: 77,
-    badge: "Silver",
-    status: "in_match",
-    categoryLabel: "Counting",
-  },
-  {
-    id: "lb-7",
-    name: "Nadia Math-Ninja",
-    avatar: "🥷",
-    score: 195,
-    winRate: 74,
-    badge: "Silver",
-    status: "offline",
-    categoryLabel: "Semua Materi",
-  },
-];
 
 export const MainMenu: React.FC<MainMenuProps> = ({
   onStartGame,
@@ -222,6 +140,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   const [matchHistory, setMatchHistory] = useState<MatchRecord[]>([]);
   const [fullMatchHistory, setFullMatchHistory] = useState<MatchRecord[]>([]);
   const [isRefreshingLeaderboard, setIsRefreshingLeaderboard] = useState(false);
+  const [leaderboardList, setLeaderboardList] = useState<LeaderboardEntry[]>([]);
+  const [isLiveDatabase, setIsLiveDatabase] = useState(false);
 
   useEffect(() => {
     try {
@@ -236,60 +156,31 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     }
   }, []);
 
-  // Compute Mock Global Leaderboard combined with local user score
+  // Fetch / Sync Global Leaderboard
+  const loadLeaderboardData = useCallback(async () => {
+    setIsRefreshingLeaderboard(true);
+    const activeName =
+      currentUser?.displayName || currentUser?.name || playerName || "Pemain Kamu";
+    const res = await fetchGlobalLeaderboard(activeName, lifetimeScore);
+    setLeaderboardList(res.entries);
+    setIsLiveDatabase(res.isLiveDb);
+    setIsRefreshingLeaderboard(false);
+  }, [currentUser, playerName, lifetimeScore]);
+
+  useEffect(() => {
+    loadLeaderboardData();
+  }, [loadLeaderboardData, activeTab]);
+
   const computedLeaderboard = useMemo(() => {
-    const userRankBadge =
-      lifetimeScore >= 450
-        ? "Grandmaster"
-        : lifetimeScore >= 350
-          ? "Master"
-          : lifetimeScore >= 250
-            ? "Diamond"
-            : lifetimeScore >= 150
-              ? "Platinum"
-              : lifetimeScore >= 50
-                ? "Gold"
-                : "Pemula";
-
-    const currentUserEntry: LeaderboardEntry = {
-      id: "current-user-lb",
-      name: playerName ? `${playerName}` : "Pemain Kamu",
-      avatar: "⭐",
-      score: lifetimeScore,
-      winRate: Math.round(
-        fullMatchHistory.length > 0
-          ? (fullMatchHistory.filter((m) => m.result === "win").length /
-              fullMatchHistory.length) *
-              100
-          : 0,
-      ),
-      badge: userRankBadge,
-      isCurrentUser: true,
-      status: "online",
-      categoryLabel:
-        selectedCategory === "all"
-          ? "Semua Materi"
-          : selectedCategory.toUpperCase(),
-    };
-
-    const list = [...DEFAULT_MOCK_LEADERBOARD, currentUserEntry];
-    list.sort((a, b) => b.score - a.score);
-
-    return list.map((entry, idx) => ({
-      ...entry,
-      rank: idx + 1,
-    }));
-  }, [lifetimeScore, playerName, fullMatchHistory, selectedCategory]);
+    return leaderboardList;
+  }, [leaderboardList]);
 
   const currentUserRank =
     computedLeaderboard.find((e) => e.isCurrentUser)?.rank || "-";
 
-  const handleRefreshLeaderboard = () => {
+  const handleRefreshLeaderboard = async () => {
     audio.playClick();
-    setIsRefreshingLeaderboard(true);
-    setTimeout(() => {
-      setIsRefreshingLeaderboard(false);
-    }, 600);
+    await loadLeaderboardData();
   };
 
   // Compute Lifetime Statistics & Accuracy Trend
@@ -1265,9 +1156,11 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               </button>
             </div>
             <div className="flex items-center justify-between text-[11px] text-slate-400 border-t border-slate-800/80 pt-2.5">
-              <span className="flex items-center gap-1 text-emerald-400 font-medium">
+              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                Database Server Cloud Terhubung
+                {isLiveDatabase
+                  ? "Database Supabase Cloud Terhubung"
+                  : "Database Real-time Tersinkron (Auto-Save Active)"}
               </span>
               <span className="text-slate-500 font-arcade text-[10px]">
                 60S SUDDEN DEATH ARENA

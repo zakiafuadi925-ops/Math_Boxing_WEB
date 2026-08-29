@@ -1,7 +1,8 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Client-side fallback configuration
+const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
+const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
 
 const isConfigured = Boolean(
   supabaseUrl &&
@@ -268,6 +269,24 @@ export interface PlayerProfile {
   high_score?: number;
 }
 
+// Tipe Data Leaderboard Entry
+export interface LeaderboardEntry {
+  id: string;
+  rank?: number;
+  name: string;
+  avatar: string;
+  score: number;
+  winRate: number;
+  badge: string;
+  isCurrentUser?: boolean;
+  status: "online" | "in_match" | "offline";
+  categoryLabel?: string;
+  totalGames?: number;
+  totalWins?: number;
+  highestCombo?: number;
+  updatedAt?: string;
+}
+
 // Helper Login Google
 export const signInWithGoogle = async (): Promise<PlayerProfile | null> => {
   try {
@@ -297,6 +316,23 @@ export const getCurrentUserProfile = async (): Promise<PlayerProfile | null> => 
     const name = user.user_metadata?.full_name || user.email?.split("@")[0] || "Petinju";
     const avatar = user.user_metadata?.avatar_url || "";
 
+    // Sync data profil ke public.profiles
+    if (isConfigured) {
+      try {
+        await supabase.from("profiles").upsert(
+          {
+            id: user.id,
+            username: name,
+            avatar_url: avatar,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+      } catch (err) {
+        console.warn("Profiles sync info:", err);
+      }
+    }
+
     return {
       id: user.id,
       uid: user.id,
@@ -322,3 +358,282 @@ export const signOutPlayer = async () => {
     console.warn("Error during signOutPlayer:", e);
   }
 };
+
+// Helper untuk menghitung badge rank berdasarkan score
+export const calculateBadge = (score: number): string => {
+  if (score >= 500) return "Grandmaster";
+  if (score >= 350) return "Master";
+  if (score >= 250) return "Diamond";
+  if (score >= 150) return "Platinum";
+  if (score >= 50) return "Gold";
+  return "Pemula";
+};
+
+// Client-side fallback / local storage key
+const LOCAL_LEADERBOARD_KEY = "mb_synced_leaderboard";
+
+// Mengambil data leaderboard dari Supabase Server API (/api/leaderboard) atau Local Cache
+export const fetchGlobalLeaderboard = async (
+  currentUserName?: string,
+  currentUserLifetimeScore: number = 0,
+): Promise<{ entries: LeaderboardEntry[]; isLiveDb: boolean }> => {
+  // 1. Coba request ke backend server API
+  try {
+    const res = await fetch("/api/leaderboard");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.isLiveDb && Array.isArray(json.data) && json.data.length > 0) {
+        const formatted: LeaderboardEntry[] = json.data.map((item: any, idx: number) => {
+          const score = item.total_score ?? item.score ?? 0;
+          const matches = item.matches_played ?? item.total_games ?? 0;
+          const wins = item.wins ?? item.total_wins ?? 0;
+          const winRate = matches > 0 ? Math.round((wins / matches) * 100) : 100;
+          const playerName = item.player_name || item.name || "Petinju";
+
+          return {
+            id: item.id || `lb_${idx}`,
+            rank: idx + 1,
+            name: playerName,
+            avatar: item.avatar || (idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "🥊"),
+            score,
+            winRate,
+            badge: calculateBadge(score),
+            isCurrentUser: currentUserName
+              ? playerName.toLowerCase() === currentUserName.toLowerCase()
+              : false,
+            status: "online",
+            categoryLabel: item.category_label || "Semua Materi",
+            totalGames: matches,
+            totalWins: wins,
+            highestCombo: item.highest_combo || 0,
+          };
+        });
+        return { entries: formatted, isLiveDb: true };
+      }
+    }
+  } catch (e) {
+    console.warn("Server API fetch /api/leaderboard fallback to local cache:", e);
+  }
+
+  // 2. Fallback ke penyimpanan lokal tersinkronisasi
+  try {
+    const raw = localStorage.getItem(LOCAL_LEADERBOARD_KEY);
+    let list: LeaderboardEntry[] = raw ? JSON.parse(raw) : [];
+
+    // Inisialisasi awal jika cache masih kosong
+    if (!list || list.length === 0) {
+      list = [
+        {
+          id: "lb-init-1",
+          name: "Budi Math-Champ",
+          avatar: "🥇",
+          score: 480,
+          winRate: 96,
+          badge: "Grandmaster",
+          status: "online",
+          categoryLabel: "Aritmatika",
+          totalGames: 42,
+          totalWins: 40,
+        },
+        {
+          id: "lb-init-2",
+          name: "Siti Speed-Math",
+          avatar: "🥈",
+          score: 410,
+          winRate: 92,
+          badge: "Master",
+          status: "in_match",
+          categoryLabel: "Aljabar",
+          totalGames: 36,
+          totalWins: 33,
+        },
+        {
+          id: "lb-init-3",
+          name: "Rizky KO-Striker",
+          avatar: "🥉",
+          score: 360,
+          winRate: 88,
+          badge: "Diamond",
+          status: "online",
+          categoryLabel: "Akar Pangkat",
+          totalGames: 30,
+          totalWins: 26,
+        },
+        {
+          id: "lb-init-4",
+          name: "Ahmad Speed-Calc",
+          avatar: "🥊",
+          score: 310,
+          winRate: 85,
+          badge: "Platinum",
+          status: "offline",
+          categoryLabel: "Fisika Dasar",
+          totalGames: 25,
+          totalWins: 21,
+        },
+        {
+          id: "lb-init-5",
+          name: "Dewi Formula-Pro",
+          avatar: "⚡",
+          score: 275,
+          winRate: 81,
+          badge: "Gold",
+          status: "online",
+          categoryLabel: "Geometri",
+          totalGames: 22,
+          totalWins: 18,
+        },
+      ];
+      localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(list));
+    }
+
+    const activeName = currentUserName || "Pemain Kamu";
+    const existingIndex = list.findIndex((e) => e.name.toLowerCase() === activeName.toLowerCase());
+
+    if (existingIndex >= 0) {
+      if (currentUserLifetimeScore > list[existingIndex].score) {
+        list[existingIndex].score = currentUserLifetimeScore;
+        list[existingIndex].badge = calculateBadge(currentUserLifetimeScore);
+      }
+      list[existingIndex].isCurrentUser = true;
+    } else if (currentUserLifetimeScore > 0) {
+      list.push({
+        id: `player_local_${Date.now()}`,
+        name: activeName,
+        avatar: "⭐",
+        score: currentUserLifetimeScore,
+        winRate: 100,
+        badge: calculateBadge(currentUserLifetimeScore),
+        isCurrentUser: true,
+        status: "online",
+        categoryLabel: "Semua Materi",
+        totalGames: 1,
+        totalWins: 1,
+      });
+    }
+
+    list.sort((a, b) => b.score - a.score);
+
+    const ranked = list.map((entry, idx) => ({
+      ...entry,
+      rank: idx + 1,
+      isCurrentUser: entry.name.toLowerCase() === activeName.toLowerCase(),
+    }));
+
+    return { entries: ranked, isLiveDb: false };
+  } catch (e) {
+    console.error("Failed to load local leaderboard:", e);
+    return { entries: [], isLiveDb: false };
+  }
+};
+
+// Helper otomatis simpan score hasil pertandingan ke Backend Server / Supabase
+export const saveMatchScoreToLeaderboard = async ({
+  playerName,
+  opponentName,
+  scoreEarned,
+  opponentScore = 0,
+  newLifetimeScore,
+  matchResult,
+  category,
+  avatar,
+  highestCombo = 0,
+  roomId,
+}: {
+  playerName: string;
+  opponentName?: string;
+  scoreEarned: number;
+  opponentScore?: number;
+  newLifetimeScore: number;
+  matchResult: "win" | "loss" | "draw";
+  category: string;
+  avatar?: string;
+  highestCombo?: number;
+  roomId?: string;
+}) => {
+  const name = playerName.trim() || "Pemain Kamu";
+  const badge = calculateBadge(newLifetimeScore);
+
+  // 1. Simpan ke Backend Server API (/api/leaderboard & /api/match-history)
+  try {
+    fetch("/api/leaderboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        player_name: name,
+        total_score: newLifetimeScore,
+        wins: matchResult === "win" ? 1 : 0,
+        matches_played: 1,
+        highest_combo: highestCombo,
+      }),
+    }).catch((e) => console.warn("API /api/leaderboard post notice:", e));
+
+    if (opponentName) {
+      fetch("/api/match-history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room_id: roomId || `room_${Date.now()}`,
+          player_name: name,
+          opponent_name: opponentName,
+          player_score: scoreEarned,
+          opponent_score: opponentScore,
+          result: matchResult,
+        }),
+      }).catch((e) => console.warn("API /api/match-history post notice:", e));
+    }
+  } catch (e) {
+    console.warn("Backend saveMatchScore error:", e);
+  }
+
+  // 2. Simpan juga ke cache lokal
+  try {
+    const raw = localStorage.getItem(LOCAL_LEADERBOARD_KEY);
+    let list: LeaderboardEntry[] = raw ? JSON.parse(raw) : [];
+
+    const existingIndex = list.findIndex(
+      (e) => e.name.toLowerCase() === name.toLowerCase(),
+    );
+
+    if (existingIndex >= 0) {
+      const prev = list[existingIndex];
+      const games = (prev.totalGames || 1) + 1;
+      const wins = (prev.totalWins || 1) + (matchResult === "win" ? 1 : 0);
+      const calculatedWinRate = Math.round((wins / games) * 100);
+
+      list[existingIndex] = {
+        ...prev,
+        score: Math.max(prev.score, newLifetimeScore),
+        badge: calculateBadge(Math.max(prev.score, newLifetimeScore)),
+        winRate: calculatedWinRate,
+        totalGames: games,
+        totalWins: wins,
+        highestCombo: Math.max(prev.highestCombo || 0, highestCombo),
+        categoryLabel: category === "all" ? "Semua Materi" : category.toUpperCase(),
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      list.push({
+        id: `lb_player_${Date.now()}`,
+        name,
+        avatar: avatar || "⭐",
+        score: newLifetimeScore,
+        winRate: matchResult === "win" ? 100 : 0,
+        badge,
+        isCurrentUser: true,
+        status: "online",
+        categoryLabel: category === "all" ? "Semua Materi" : category.toUpperCase(),
+        totalGames: 1,
+        totalWins: matchResult === "win" ? 1 : 0,
+        highestCombo,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    list.sort((a, b) => b.score - a.score);
+    localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error("Failed to save to local leaderboard storage:", e);
+  }
+};
+
