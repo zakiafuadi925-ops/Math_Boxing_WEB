@@ -26,6 +26,9 @@ import {
   RefreshCw,
   Maximize2,
   Minimize2,
+  ChevronRight,
+  Flame,
+  Award,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -671,6 +674,199 @@ export const MainMenu: React.FC<MainMenuProps> = ({
             >
               LIHAT
             </button>
+          </div>
+
+          {/* GLOBAL RANKINGS (TOP 5 PLAYERS BY MATH TITLE & TOTAL SCORE) */}
+          <div className="w-full bg-gradient-to-b from-slate-900 via-slate-900/95 to-slate-950 border-2 border-amber-500/50 rounded-2xl p-4 shadow-2xl relative overflow-hidden text-left">
+            {/* Ambient Lighting */}
+            <div className="absolute -top-12 -right-12 w-44 h-44 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-12 -left-12 w-44 h-44 bg-yellow-500/10 rounded-full blur-3xl pointer-events-none" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between gap-2 mb-3 pb-2.5 border-b border-slate-800/80">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-gradient-to-br from-amber-500 to-yellow-600 rounded-xl text-slate-950 shadow-md">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-arcade text-base font-black text-amber-400 uppercase tracking-wide">
+                      GLOBAL RANKINGS
+                    </h3>
+                    <span className="text-[10px] bg-gradient-to-r from-amber-500 to-yellow-400 text-slate-950 font-black px-2 py-0.5 rounded-full shadow-sm">
+                      TOP 5 DUNIA
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5 flex-wrap">
+                    <span>Peringkat Petinju berdasarkan Gelar & Total Poin</span>
+                    <span className="text-slate-600">•</span>
+                    <span className="text-amber-300 font-semibold flex items-center gap-0.5">
+                      <Flame className="w-3 h-3 text-amber-400 fill-amber-400" /> Target: Profesor (100.000+ PTS)
+                    </span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  audio.playClick();
+                  setActiveTab("leaderboard");
+                }}
+                className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 border border-amber-500/40 hover:border-amber-400 text-amber-300 font-arcade text-xs font-bold rounded-xl transition flex items-center gap-1 shadow group shrink-0"
+                title="Buka Papan Peringkat Lengkap"
+              >
+                <span>LIHAT SEMUA</span>
+                <ChevronRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
+              </button>
+            </div>
+
+            {/* Top 5 Players List */}
+            <div className="space-y-2">
+              {computedLeaderboard.slice(0, 5).map((player, idx) => {
+                const playerTier = getRankTierByScore(player.score);
+                const isChampion = idx === 0;
+                const isTop3 = idx < 3;
+                const isUser = player.isCurrentUser;
+
+                return (
+                  <div
+                    key={player.id || `global-top-${idx}`}
+                    className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-3 relative overflow-hidden ${
+                      isChampion
+                        ? "bg-gradient-to-r from-amber-950/70 via-slate-900 to-amber-950/40 border-yellow-400/80 shadow-lg shadow-yellow-500/10 ring-1 ring-yellow-400/40"
+                        : isUser
+                          ? "bg-gradient-to-r from-blue-950/60 via-slate-900 to-amber-950/30 border-amber-400/70 ring-1 ring-amber-400/40"
+                          : "bg-slate-950/80 border-slate-800/80 hover:border-slate-700"
+                    }`}
+                  >
+                    {/* Left: Rank & Avatar & Info */}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {/* Rank Position Chip */}
+                      <div className="flex items-center justify-center w-7 shrink-0">
+                        {idx === 0 ? (
+                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-yellow-400 to-amber-600 flex items-center justify-center text-slate-950 font-arcade font-black text-xs shadow-md">
+                            <Crown className="w-4 h-4 text-slate-950 fill-slate-950" />
+                          </div>
+                        ) : idx === 1 ? (
+                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-slate-300 to-slate-500 flex items-center justify-center text-slate-950 font-arcade font-black text-xs shadow-md">
+                            <Medal className="w-4 h-4 text-slate-950" />
+                          </div>
+                        ) : idx === 2 ? (
+                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-700 to-amber-900 flex items-center justify-center text-amber-200 font-arcade font-black text-xs shadow-md">
+                            <Medal className="w-4 h-4 text-amber-200" />
+                          </div>
+                        ) : (
+                          <span className="font-arcade text-xs font-bold text-slate-400 bg-slate-900 px-1.5 py-1 rounded border border-slate-800">
+                            #{idx + 1}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Avatar */}
+                      <div className="relative shrink-0">
+                        <div
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg border-2 ${playerTier.badgeBorder} ${playerTier.badgeBg} shadow`}
+                        >
+                          {player.avatar || playerTier.icon}
+                        </div>
+                        {isChampion && (
+                          <span className="absolute -top-1 -right-1 text-xs">👑</span>
+                        )}
+                      </div>
+
+                      {/* Name & Title */}
+                      <div className="text-left min-w-0">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="font-bold text-xs text-slate-100 truncate block">
+                            {player.name}
+                          </span>
+                          {isUser && (
+                            <span className="text-[9px] bg-amber-500 text-slate-950 font-black px-1.5 py-0.2 rounded font-arcade shrink-0">
+                              KAMU
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Math Title & Belt Badge */}
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-bold border ${playerTier.badgeBg} ${playerTier.badgeBorder} ${playerTier.badgeText}`}
+                          >
+                            <span>{playerTier.icon}</span>
+                            <span className="truncate max-w-[120px] sm:max-w-[170px]">
+                              {playerTier.name}
+                            </span>
+                          </span>
+                          <span className="text-[9px] text-slate-400 font-mono hidden sm:inline">
+                            (Lv.{playerTier.level}/9)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Score & Status */}
+                    <div className="text-right shrink-0">
+                      <div className="flex items-center justify-end gap-1">
+                        <span
+                          className={`font-arcade text-xs sm:text-sm font-black font-mono ${
+                            isChampion
+                              ? "text-yellow-300"
+                              : isTop3
+                                ? "text-amber-400"
+                                : "text-slate-200"
+                          }`}
+                        >
+                          {player.score.toLocaleString("id-ID")}
+                        </span>
+                        <span className="text-[9px] text-slate-400 font-bold">PTS</span>
+                      </div>
+
+                      {/* Status / Winrate */}
+                      <div className="flex items-center justify-end gap-1 mt-0.5 text-[9px] text-slate-400">
+                        <span className="text-emerald-400 font-semibold">
+                          {player.winRate}% Win
+                        </span>
+                        <span className="text-slate-600">•</span>
+                        <span className="text-slate-400">
+                          {player.totalGames || 0} Match
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Current Player Rank Callout (if outside top 5) */}
+            {currentUserRank !== "-" && Number(currentUserRank) > 5 && (
+              <div className="mt-2.5 pt-2.5 border-t border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80">
+                <div className="flex items-center gap-2">
+                  <span className="font-arcade font-bold text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-600/60 shrink-0">
+                    POSISI KAMU: #{currentUserRank}
+                  </span>
+                  <span className="text-slate-300 font-medium truncate">
+                    {currentTier.icon} {currentTier.name} •{" "}
+                    <strong className="text-amber-400 font-mono">
+                      {lifetimeScore.toLocaleString("id-ID")} PTS
+                    </strong>
+                  </span>
+                </div>
+
+                <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                  {100000 - lifetimeScore > 0 ? (
+                    <>
+                      Sisa{" "}
+                      <strong className="text-amber-300">
+                        {(100000 - lifetimeScore).toLocaleString("id-ID")} PTS
+                      </strong>{" "}
+                      menuju 🎓 Profesor
+                    </>
+                  ) : (
+                    <span className="text-yellow-300 font-bold">🎓 Profesor Matematika</span>
+                  )}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Quick Match Online */}
