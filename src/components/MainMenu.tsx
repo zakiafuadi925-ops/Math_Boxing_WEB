@@ -202,6 +202,34 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     await loadLeaderboardData();
   };
 
+  // Helper untuk merender avatar (Emoji atau URL Foto Profil Google)
+  const renderAvatarContent = (
+    avatar?: string,
+    fallback: string = "🥊",
+    imgClass: string = "w-full h-full object-cover rounded-lg",
+  ) => {
+    const val = avatar?.trim();
+    if (
+      val &&
+      (val.startsWith("http://") ||
+        val.startsWith("https://") ||
+        val.startsWith("data:"))
+    ) {
+      return (
+        <img
+          src={val}
+          alt="Avatar"
+          className={imgClass}
+          referrerPolicy="no-referrer"
+          onError={(e) => {
+            (e.target as HTMLElement).style.display = "none";
+          }}
+        />
+      );
+    }
+    return <span>{val || fallback}</span>;
+  };
+
   // Compute Lifetime Statistics & Accuracy Trend
   const statsSummary = useMemo(() => {
     if (!fullMatchHistory || fullMatchHistory.length === 0) {
@@ -765,9 +793,9 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                       {/* Avatar */}
                       <div className="relative shrink-0">
                         <div
-                          className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg border-2 ${playerTier.badgeBorder} ${playerTier.badgeBg} shadow`}
+                          className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg border-2 overflow-hidden ${playerTier.badgeBorder} ${playerTier.badgeBg} shadow`}
                         >
-                          {player.avatar || playerTier.icon}
+                          {renderAvatarContent(player.avatar, playerTier.icon, "w-full h-full object-cover")}
                         </div>
                         {isChampion && (
                           <span className="absolute -top-1 -right-1 text-xs">👑</span>
@@ -1590,8 +1618,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                   <Medal className="w-6 h-6 text-slate-300 drop-shadow" />
                 </div>
-                <div className="mt-2 text-2xl">
-                  {computedLeaderboard[1].avatar}
+                <div className="mt-2 text-2xl w-10 h-10 flex items-center justify-center overflow-hidden rounded-full">
+                  {renderAvatarContent(computedLeaderboard[1].avatar, "🥈", "w-full h-full object-cover rounded-full")}
                 </div>
                 <div className="mt-1 w-full truncate">
                   <span className="font-bold text-xs text-slate-200 block truncate">
@@ -1613,8 +1641,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                   <Crown className="w-7 h-7 text-yellow-300 fill-yellow-400 drop-shadow-[0_2px_8px_rgba(250,204,21,0.8)]" />
                 </div>
-                <div className="mt-2 text-3xl">
-                  {computedLeaderboard[0].avatar}
+                <div className="mt-2 text-3xl w-12 h-12 flex items-center justify-center overflow-hidden rounded-full border-2 border-yellow-400">
+                  {renderAvatarContent(computedLeaderboard[0].avatar, "👑", "w-full h-full object-cover rounded-full")}
                 </div>
                 <div className="mt-1 w-full truncate">
                   <span className="font-arcade text-xs font-black text-amber-300 block truncate">
@@ -1636,8 +1664,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                   <Medal className="w-6 h-6 text-amber-600 drop-shadow" />
                 </div>
-                <div className="mt-2 text-2xl">
-                  {computedLeaderboard[2].avatar}
+                <div className="mt-2 text-2xl w-10 h-10 flex items-center justify-center overflow-hidden rounded-full">
+                  {renderAvatarContent(computedLeaderboard[2].avatar, "🥉", "w-full h-full object-cover rounded-full")}
                 </div>
                 <div className="mt-1 w-full truncate">
                   <span className="font-bold text-xs text-slate-200 block truncate">
@@ -1701,9 +1729,9 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                         >
                           #{entry.rank}
                         </span>
-                        <span className="text-lg flex-shrink-0">
-                          {entry.avatar}
-                        </span>
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-lg overflow-hidden bg-slate-900 border border-slate-700 flex-shrink-0">
+                          {renderAvatarContent(entry.avatar, "🥊", "w-full h-full object-cover")}
+                        </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 truncate">
                             <span

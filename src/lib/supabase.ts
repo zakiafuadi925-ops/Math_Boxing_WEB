@@ -381,13 +381,18 @@ export const fetchGlobalLeaderboard = async (
           const matches = item.matches_played ?? item.total_games ?? 0;
           const wins = item.wins ?? item.total_wins ?? 0;
           const winRate = matches > 0 ? Math.round((wins / matches) * 100) : 100;
-          const playerName = item.player_name || item.name || "Petinju";
+          const rawPlayerName = String(item.player_name || item.name || "Petinju").trim();
+          const isUrlName = rawPlayerName.startsWith("http://") || rawPlayerName.startsWith("https://");
+          const avatarUrl = item.avatar_url || item.avatar || (isUrlName ? rawPlayerName : null);
+          const playerName = isUrlName
+            ? `Petinju ${idx + 1}`
+            : rawPlayerName;
 
           return {
             id: item.id || `lb_${idx}`,
             rank: idx + 1,
             name: playerName,
-            avatar: item.avatar || (idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "🥊"),
+            avatar: avatarUrl || (idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "🥊"),
             score,
             winRate,
             badge: calculateBadge(score),
