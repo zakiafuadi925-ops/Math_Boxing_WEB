@@ -663,14 +663,15 @@ export default function App() {
 
       // ✅ Otomatis simpan skor & match history ke database Supabase / leaderboard
       saveMatchScoreToLeaderboard({
-        playerName: currentUser?.displayName || currentUser?.name || playerName || "Player 1",
+        userId: currentUser?.uid || (currentUser as any)?.id,
+        playerName: currentUser?.displayName || (currentUser as any)?.name || playerName || "Player 1",
         opponentName: p2.name,
         scoreEarned: p1.score,
         opponentScore: p2.score,
         newLifetimeScore: finalLifetime,
         matchResult,
         category,
-        avatar: currentUser?.photoURL || currentUser?.avatar_url || "🥊",
+        avatar: currentUser?.photoURL || (currentUser as any)?.avatar_url || "🥊",
         highestCombo,
         roomId: roomCode || undefined,
       });

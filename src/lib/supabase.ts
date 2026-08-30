@@ -571,6 +571,7 @@ export const fetchGlobalLeaderboard = async (
 
 // Helper otomatis simpan score hasil pertandingan ke Backend Server / Supabase
 export const saveMatchScoreToLeaderboard = async ({
+  userId,
   playerName,
   opponentName,
   scoreEarned,
@@ -582,6 +583,7 @@ export const saveMatchScoreToLeaderboard = async ({
   highestCombo = 0,
   roomId,
 }: {
+  userId?: string;
   playerName: string;
   opponentName?: string;
   scoreEarned: number;
@@ -602,11 +604,15 @@ export const saveMatchScoreToLeaderboard = async ({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        user_id: userId,
         player_name: name,
         total_score: newLifetimeScore,
+        score_increment: scoreEarned,
         wins: matchResult === "win" ? 1 : 0,
         matches_played: 1,
         highest_combo: highestCombo,
+        avatar: avatar || "🥊",
+        avatar_url: avatar || "",
       }),
     }).catch((e) => console.warn("API /api/leaderboard post notice:", e));
 
@@ -616,6 +622,7 @@ export const saveMatchScoreToLeaderboard = async ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           room_id: roomId || `room_${Date.now()}`,
+          user_id: userId,
           player_name: name,
           opponent_name: opponentName,
           player_score: scoreEarned,
@@ -626,6 +633,26 @@ export const saveMatchScoreToLeaderboard = async ({
     }
   } catch (e) {
     console.warn("Backend saveMatchScore error:", e);
+  }
+
+  // 2. Direct client-side Supabase write if available
+  if (supabase) {
+    try {
+      supabase
+        .from("match_history")
+        .insert({
+          room_id: roomId || `room_${Date.now()}`,
+          player_name: name,
+          opponent_name: opponentName || "AI Opponent",
+          player_score: scoreEarned,
+          opponent_score: opponentScore,
+          result: matchResult,
+          created_at: new Date().toISOString(),
+        })
+        .then(({ error }) => {
+          if (error) console.warn("Client-side match_history write error:", error.message);
+        });
+    } catch {}
   }
 
   // 2. Simpan juga ke cache lokal

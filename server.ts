@@ -74,11 +74,15 @@ app.post("/api/leaderboard", async (req, res) => {
   }
 
   const {
+    user_id,
     player_name,
     total_score,
+    score_increment,
     wins,
     matches_played,
     highest_combo,
+    avatar,
+    avatar_url,
   } = req.body;
 
   if (!player_name) {
@@ -86,40 +90,90 @@ app.post("/api/leaderboard", async (req, res) => {
   }
 
   try {
-    // Get existing record to safely accumulate or keep best combo
-    const { data: existing } = await supabaseServer
-      .from("leaderboard")
-      .select("*")
-      .eq("player_name", player_name)
-      .maybeSingle();
+    // 1. Search for existing record by user_id or player_name
+    let query = supabaseServer.from("leaderboard").select("*");
+    if (user_id) {
+      query = query.or(`user_id.eq.${user_id},player_name.eq.${player_name}`);
+    } else {
+      query = query.eq("player_name", player_name);
+    }
+    const { data: existingList } = await query.limit(1);
+    const existing = existingList && existingList.length > 0 ? existingList[0] : null;
 
-    const nextWins = wins ?? (existing ? existing.wins : 0);
-    const nextMatches = matches_played ?? (existing ? existing.matches_played : 0);
+    const nextWins = (existing?.wins ?? 0) + (wins ?? 0);
+    const nextMatches = (existing?.matches_played ?? 0) + (matches_played ?? 1);
     const nextCombo = Math.max(highest_combo ?? 0, existing?.highest_combo ?? 0);
-    const nextScore = Math.max(total_score ?? 0, existing?.total_score ?? 0);
+    const nextScore = Math.max(
+      total_score ?? 0,
+      (existing?.total_score ?? 0) + (score_increment ?? 0),
+      existing?.total_score ?? 0
+    );
+    const finalAvatar = avatar_url || avatar || existing?.avatar_url || existing?.avatar;
 
-    const { data, error } = await supabaseServer
-      .from("leaderboard")
-      .upsert(
-        {
-          player_name,
-          total_score: nextScore,
-          wins: nextWins,
-          matches_played: nextMatches,
-          highest_combo: nextCombo,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "player_name" }
-      )
-      .select()
-      .maybeSingle();
+    const payload: any = {
+      player_name,
+      total_score: nextScore,
+      wins: nextWins,
+      matches_played: nextMatches,
+      highest_combo: nextCombo,
+      updated_at: new Date().toISOString(),
+    };
+    if (user_id) payload.user_id = user_id;
+    if (finalAvatar) payload.avatar_url = finalAvatar;
 
-    if (error) {
-      console.warn("Supabase leaderboard upsert error:", error.message);
-      return res.status(400).json({ success: false, error: error.message });
+    let saveResult: any;
+    if (existing && existing.id) {
+      // Update by primary key id (avoids constraint mismatches)
+      saveResult = await supabaseServer
+        .from("leaderboard")
+        .update(payload)
+        .eq("id", existing.id)
+        .select()
+        .maybeSingle();
+    } else if (existing) {
+      saveResult = await supabaseServer
+        .from("leaderboard")
+        .update(payload)
+        .eq("player_name", player_name)
+        .select()
+        .maybeSingle();
+    } else {
+      // Insert new record
+      saveResult = await supabaseServer
+        .from("leaderboard")
+        .insert(payload)
+        .select()
+        .maybeSingle();
+
+      // If insert hits a conflict, try upsert
+      if (saveResult.error) {
+        saveResult = await supabaseServer
+          .from("leaderboard")
+          .upsert(payload)
+          .select()
+          .maybeSingle();
+      }
     }
 
-    return res.json({ success: true, data });
+    if (saveResult.error) {
+      console.warn("Leaderboard save initial warning:", saveResult.error.message);
+      // Fallback: minimal columns only in case custom columns like user_id/avatar_url aren't defined
+      const minimalPayload = {
+        player_name,
+        total_score: nextScore,
+        wins: nextWins,
+        matches_played: nextMatches,
+        highest_combo: nextCombo,
+        updated_at: new Date().toISOString(),
+      };
+      if (existing?.id) {
+        await supabaseServer.from("leaderboard").update(minimalPayload).eq("id", existing.id);
+      } else {
+        await supabaseServer.from("leaderboard").insert(minimalPayload);
+      }
+    }
+
+    return res.json({ success: true, data: saveResult.data || payload });
   } catch (err: any) {
     console.error("Leaderboard upsert exception:", err);
     return res.status(500).json({ success: false, error: err.message });
@@ -134,6 +188,7 @@ app.post("/api/match-history", async (req, res) => {
 
   const {
     room_id,
+    user_id,
     player_name,
     opponent_name,
     player_score,
@@ -146,7 +201,7 @@ app.post("/api/match-history", async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabaseServer.from("match_history").insert({
+    const fullPayload: any = {
       room_id: room_id || `match_${Date.now()}`,
       player_name,
       opponent_name,
@@ -154,14 +209,33 @@ app.post("/api/match-history", async (req, res) => {
       opponent_score: opponent_score || 0,
       result: result || "win",
       created_at: new Date().toISOString(),
-    });
+    };
+    if (user_id) fullPayload.user_id = user_id;
+
+    let { data, error } = await supabaseServer
+      .from("match_history")
+      .insert(fullPayload)
+      .select()
+      .maybeSingle();
 
     if (error) {
-      console.warn("Supabase match_history insert error:", error.message);
-      return res.status(400).json({ success: false, error: error.message });
+      console.warn("Supabase match_history standard insert failed, trying fallback:", error.message);
+      // Fallback: omit room_id and user_id if table doesn't have those columns
+      const fallbackPayload: any = {
+        player_name,
+        opponent_name,
+        player_score: player_score || 0,
+        opponent_score: opponent_score || 0,
+        result: result || "win",
+      };
+      const retry = await supabaseServer.from("match_history").insert(fallbackPayload);
+      if (retry.error) {
+        console.warn("Match history fallback insert error:", retry.error.message);
+        return res.status(400).json({ success: false, error: retry.error.message });
+      }
     }
 
-    return res.json({ success: true, data });
+    return res.json({ success: true, data: data || fullPayload });
   } catch (err: any) {
     console.error("Match history insert exception:", err);
     return res.status(500).json({ success: false, error: err.message });
