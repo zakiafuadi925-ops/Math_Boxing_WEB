@@ -363,9 +363,43 @@ export const signOutPlayer = async () => {
 export { calculateBadge, getRankTierByScore };
 
 // Client-side fallback / local storage key
-const LOCAL_LEADERBOARD_KEY = "mb_synced_leaderboard_v2";
+const LOCAL_LEADERBOARD_KEY = "mb_synced_leaderboard_v3";
 
-// Mengambil data leaderboard dari Supabase Server API (/api/leaderboard) atau Local Cache
+// Helper formatter
+const formatLeaderboardRows = (data: any[], currentUserName?: string): LeaderboardEntry[] => {
+  return data.map((item: any, idx: number) => {
+    const score = item.total_score ?? item.score ?? 0;
+    const matches = item.matches_played ?? item.total_games ?? 0;
+    const wins = item.wins ?? item.total_wins ?? 0;
+    const winRate = matches > 0 ? Math.round((wins / matches) * 100) : 100;
+    const rawPlayerName = String(item.player_name || item.username || item.name || "Petinju").trim();
+    const isUrlName = rawPlayerName.startsWith("http://") || rawPlayerName.startsWith("https://");
+    const avatarUrl = item.avatar_url || item.avatar || (isUrlName ? rawPlayerName : null);
+    const playerName = isUrlName
+      ? `Petinju ${idx + 1}`
+      : rawPlayerName;
+
+    return {
+      id: item.id || `lb_${idx}`,
+      rank: idx + 1,
+      name: playerName,
+      avatar: avatarUrl || (idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "🥊"),
+      score,
+      winRate,
+      badge: calculateBadge(score),
+      isCurrentUser: currentUserName
+        ? playerName.toLowerCase() === currentUserName.toLowerCase()
+        : false,
+      status: "online",
+      categoryLabel: item.category_label || "Semua Materi",
+      totalGames: matches,
+      totalWins: wins,
+      highestCombo: item.highest_combo || 0,
+    };
+  });
+};
+
+// Mengambil data leaderboard dari Supabase Server API (/api/leaderboard) atau Direct Client Supabase / Local Cache
 export const fetchGlobalLeaderboard = async (
   currentUserName?: string,
   currentUserLifetimeScore: number = 0,
@@ -375,155 +409,162 @@ export const fetchGlobalLeaderboard = async (
     const res = await fetch("/api/leaderboard");
     if (res.ok) {
       const json = await res.json();
-      if (json.success && json.isLiveDb && Array.isArray(json.data) && json.data.length > 0) {
-        const formatted: LeaderboardEntry[] = json.data.map((item: any, idx: number) => {
-          const score = item.total_score ?? item.score ?? 0;
-          const matches = item.matches_played ?? item.total_games ?? 0;
-          const wins = item.wins ?? item.total_wins ?? 0;
-          const winRate = matches > 0 ? Math.round((wins / matches) * 100) : 100;
-          const rawPlayerName = String(item.player_name || item.name || "Petinju").trim();
-          const isUrlName = rawPlayerName.startsWith("http://") || rawPlayerName.startsWith("https://");
-          const avatarUrl = item.avatar_url || item.avatar || (isUrlName ? rawPlayerName : null);
-          const playerName = isUrlName
-            ? `Petinju ${idx + 1}`
-            : rawPlayerName;
-
-          return {
-            id: item.id || `lb_${idx}`,
-            rank: idx + 1,
-            name: playerName,
-            avatar: avatarUrl || (idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "🥊"),
-            score,
-            winRate,
-            badge: calculateBadge(score),
-            isCurrentUser: currentUserName
-              ? playerName.toLowerCase() === currentUserName.toLowerCase()
-              : false,
-            status: "online",
-            categoryLabel: item.category_label || "Semua Materi",
-            totalGames: matches,
-            totalWins: wins,
-            highestCombo: item.highest_combo || 0,
-          };
-        });
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        const formatted = formatLeaderboardRows(json.data, currentUserName);
+        try {
+          localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(formatted));
+        } catch {}
         return { entries: formatted, isLiveDb: true };
       }
     }
   } catch (e) {
-    console.warn("Server API fetch /api/leaderboard fallback to local cache:", e);
+    console.warn("Server API fetch /api/leaderboard fallback to direct client Supabase:", e);
   }
 
-  // 2. Fallback ke penyimpanan lokal tersinkronisasi
+  // 2. Direct client-side fetch from Supabase (untuk deployment Vercel / Client SPA)
+  if (isConfigured && supabase) {
+    try {
+      const [lbRes, profRes] = await Promise.allSettled([
+        supabase.from("leaderboard").select("*").order("total_score", { ascending: false }).limit(100),
+        supabase.from("profiles").select("*").order("total_score", { ascending: false }).limit(100),
+      ]);
+
+      const lbData = lbRes.status === "fulfilled" && Array.isArray(lbRes.value.data) ? lbRes.value.data : [];
+      const profData = profRes.status === "fulfilled" && Array.isArray(profRes.value.data) ? profRes.value.data : [];
+
+      if (lbData.length > 0 || profData.length > 0) {
+        const mergedMap = new Map<string, any>();
+
+        for (const p of profData) {
+          const key = (p.username || p.name || p.id || "").trim().toLowerCase();
+          if (!key) continue;
+          mergedMap.set(key, {
+            id: p.id,
+            user_id: p.id,
+            player_name: p.username || p.name || "Petinju",
+            total_score: p.total_score || 0,
+            wins: p.wins || 0,
+            matches_played: p.matches_played || 0,
+            highest_combo: p.highest_combo || 0,
+            avatar_url: p.avatar_url || p.avatar || "",
+          });
+        }
+
+        for (const lb of lbData) {
+          const key = (lb.player_name || lb.name || lb.id || "").trim().toLowerCase();
+          if (!key) continue;
+          const existing = mergedMap.get(key);
+          if (existing) {
+            existing.total_score = Math.max(existing.total_score, lb.total_score || 0);
+            existing.wins = Math.max(existing.wins, lb.wins || 0);
+            existing.matches_played = Math.max(existing.matches_played, lb.matches_played || 0);
+            existing.highest_combo = Math.max(existing.highest_combo || 0, lb.highest_combo || 0);
+            if (!existing.avatar_url && (lb.avatar_url || lb.avatar)) {
+              existing.avatar_url = lb.avatar_url || lb.avatar;
+            }
+          } else {
+            mergedMap.set(key, {
+              id: lb.id,
+              user_id: lb.user_id,
+              player_name: lb.player_name || lb.name || "Petinju",
+              total_score: lb.total_score || 0,
+              wins: lb.wins || 0,
+              matches_played: lb.matches_played || 0,
+              highest_combo: lb.highest_combo || 0,
+              avatar_url: lb.avatar_url || lb.avatar || "",
+            });
+          }
+        }
+
+        const merged = Array.from(mergedMap.values()).sort(
+          (a, b) => (b.total_score || 0) - (a.total_score || 0)
+        );
+
+        if (merged.length > 0) {
+          const formatted = formatLeaderboardRows(merged, currentUserName);
+          try {
+            localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(formatted));
+          } catch {}
+          return { entries: formatted, isLiveDb: true };
+        }
+      }
+    } catch (err) {
+      console.warn("Direct client Supabase leaderboard fetch error:", err);
+    }
+  }
+
+  // 3. Fallback ke penyimpanan lokal tersinkronisasi
   try {
     const raw = localStorage.getItem(LOCAL_LEADERBOARD_KEY);
     let list: LeaderboardEntry[] = raw ? JSON.parse(raw) : [];
 
-    // Inisialisasi awal jika cache masih kosong
+    // Inisialisasi awal jika cache masih kosong (Sinkron dengan database Supabase)
     if (!list || list.length === 0) {
       list = [
         {
           id: "lb-init-1",
-          name: "Prof. Einstein Junior",
-          avatar: "🎓",
-          score: 112500,
-          winRate: 98,
-          badge: calculateBadge(112500),
+          name: "Prof. Euler",
+          avatar: "🥇",
+          score: 125400,
+          winRate: 93,
+          badge: calculateBadge(125400),
           status: "online",
           categoryLabel: "Semua Materi",
-          totalGames: 520,
-          totalWins: 510,
-          highestCombo: 35,
+          totalGames: 105,
+          totalWins: 98,
+          highestCombo: 42,
         },
         {
           id: "lb-init-2",
-          name: "Dr. Budi Math-Champ",
-          avatar: "🔬",
-          score: 92400,
-          winRate: 95,
-          badge: calculateBadge(92400),
+          name: "Dr. Hypatia",
+          avatar: "🥈",
+          score: 94200,
+          winRate: 91,
+          badge: calculateBadge(94200),
           status: "online",
           categoryLabel: "Aritmatika",
-          totalGames: 430,
-          totalWins: 410,
-          highestCombo: 28,
+          totalGames: 82,
+          totalWins: 75,
+          highestCombo: 35,
         },
         {
           id: "lb-init-3",
-          name: "Cendekiawan Siti",
-          avatar: "⚡",
+          name: "Gauss Striker",
+          avatar: "🥉",
           score: 76500,
-          winRate: 92,
+          winRate: 86,
           badge: calculateBadge(76500),
-          status: "in_match",
+          status: "online",
           categoryLabel: "Aljabar",
-          totalGames: 340,
-          totalWins: 312,
-          highestCombo: 24,
+          totalGames: 70,
+          totalWins: 60,
+          highestCombo: 28,
         },
         {
           id: "lb-init-4",
-          name: "Grandmaster Rizky",
-          avatar: "👑",
-          score: 58200,
-          winRate: 89,
-          badge: calculateBadge(58200),
+          name: "Ada Lovelace",
+          avatar: "🥊",
+          score: 52300,
+          winRate: 82,
+          badge: calculateBadge(52300),
           status: "online",
-          categoryLabel: "Geometri",
-          totalGames: 260,
-          totalWins: 232,
-          highestCombo: 20,
+          categoryLabel: "Pecahan",
+          totalGames: 55,
+          totalWins: 45,
+          highestCombo: 22,
         },
         {
           id: "lb-init-5",
-          name: "Master Ahmad",
-          avatar: "💎",
-          score: 38500,
-          winRate: 85,
-          badge: calculateBadge(38500),
+          name: "Ramanujan Punch",
+          avatar: "🥊",
+          score: 38900,
+          winRate: 80,
+          badge: calculateBadge(38900),
           status: "offline",
-          categoryLabel: "Akar Pangkat",
-          totalGames: 180,
-          totalWins: 153,
+          categoryLabel: "Semua Materi",
+          totalGames: 40,
+          totalWins: 32,
           highestCombo: 18,
-        },
-        {
-          id: "lb-init-6",
-          name: "Pendekar Dewi",
-          avatar: "🥇",
-          score: 21800,
-          winRate: 82,
-          badge: calculateBadge(21800),
-          status: "online",
-          categoryLabel: "Fisika Dasar",
-          totalGames: 110,
-          totalWins: 90,
-          highestCombo: 15,
-        },
-        {
-          id: "lb-init-7",
-          name: "Ksatria Fajar",
-          avatar: "🥈",
-          score: 8450,
-          winRate: 78,
-          badge: calculateBadge(8450),
-          status: "online",
-          categoryLabel: "Counting",
-          totalGames: 55,
-          totalWins: 43,
-          highestCombo: 11,
-        },
-        {
-          id: "lb-init-8",
-          name: "Murid Nadia",
-          avatar: "🥉",
-          score: 2800,
-          winRate: 70,
-          badge: calculateBadge(2800),
-          status: "offline",
-          categoryLabel: "Aritmatika",
-          totalGames: 22,
-          totalWins: 16,
-          highestCombo: 8,
         },
       ];
       localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(list));
