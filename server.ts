@@ -45,18 +45,76 @@ app.get("/api/leaderboard", async (req, res) => {
   }
 
   try {
-    const { data, error } = await supabaseServer
+    // 1. Fetch entries from leaderboard
+    const { data: lbData, error: lbError } = await supabaseServer
       .from("leaderboard")
       .select("*")
       .order("total_score", { ascending: false })
-      .limit(50);
+      .limit(100);
 
-    if (error) {
-      console.error("Supabase leaderboard fetch error:", error.message);
-      return res.status(200).json({ success: true, isLiveDb: true, data: [] });
+    // 2. Also fetch entries from profiles to ensure all players are included with avatars
+    const { data: profData } = await supabaseServer
+      .from("profiles")
+      .select("*")
+      .order("total_score", { ascending: false })
+      .limit(100);
+
+    const mergedMap = new Map<string, any>();
+
+    // Add profiles first
+    if (Array.isArray(profData)) {
+      for (const p of profData) {
+        const key = (p.username || p.name || p.id || "").trim().toLowerCase();
+        if (!key) continue;
+        mergedMap.set(key, {
+          id: p.id,
+          user_id: p.id,
+          player_name: p.username || p.name || "Petinju",
+          total_score: p.total_score || 0,
+          wins: p.wins || 0,
+          matches_played: p.matches_played || 0,
+          highest_combo: p.highest_combo || 0,
+          avatar_url: p.avatar_url || p.avatar || "",
+          updated_at: p.updated_at || new Date().toISOString(),
+        });
+      }
     }
 
-    return res.json({ success: true, isLiveDb: true, data: data || [] });
+    // Merge/override with leaderboard data (taking higher score/matches)
+    if (Array.isArray(lbData)) {
+      for (const lb of lbData) {
+        const key = (lb.player_name || lb.name || lb.id || "").trim().toLowerCase();
+        if (!key) continue;
+        const existing = mergedMap.get(key);
+        if (existing) {
+          existing.total_score = Math.max(existing.total_score, lb.total_score || 0);
+          existing.wins = Math.max(existing.wins, lb.wins || 0);
+          existing.matches_played = Math.max(existing.matches_played, lb.matches_played || 0);
+          existing.highest_combo = Math.max(existing.highest_combo || 0, lb.highest_combo || 0);
+          if (!existing.avatar_url && (lb.avatar_url || lb.avatar)) {
+            existing.avatar_url = lb.avatar_url || lb.avatar;
+          }
+        } else {
+          mergedMap.set(key, {
+            id: lb.id,
+            user_id: lb.user_id,
+            player_name: lb.player_name || lb.name || "Petinju",
+            total_score: lb.total_score || 0,
+            wins: lb.wins || 0,
+            matches_played: lb.matches_played || 0,
+            highest_combo: lb.highest_combo || 0,
+            avatar_url: lb.avatar_url || lb.avatar || "",
+            updated_at: lb.updated_at || new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    const result = Array.from(mergedMap.values()).sort(
+      (a, b) => (b.total_score || 0) - (a.total_score || 0)
+    );
+
+    return res.json({ success: true, isLiveDb: true, data: result });
   } catch (err: any) {
     console.error("Leaderboard query exception:", err);
     return res.status(500).json({ success: false, error: err.message });
