@@ -231,6 +231,39 @@ app.post("/api/leaderboard", async (req, res) => {
       }
     }
 
+    // 2. Also update profiles table so profile XP stays 100% in sync
+    if (user_id) {
+      try {
+        const { data: prof } = await supabaseServer
+          .from("profiles")
+          .select("*")
+          .eq("id", user_id)
+          .maybeSingle();
+
+        const profScore = Math.max(
+          nextScore,
+          (prof?.total_score ?? 0) + (score_increment ?? 0)
+        );
+        const profWins = (prof?.wins ?? 0) + (wins ?? 0);
+        const profMatches = (prof?.matches_played ?? 0) + (matches_played ?? 1);
+
+        await supabaseServer.from("profiles").upsert(
+          {
+            id: user_id,
+            username: player_name,
+            avatar_url: finalAvatar || prof?.avatar_url || "",
+            total_score: profScore,
+            wins: profWins,
+            matches_played: profMatches,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+      } catch (profErr) {
+        console.warn("Profile sync in post leaderboard notice:", profErr);
+      }
+    }
+
     return res.json({ success: true, data: saveResult.data || payload });
   } catch (err: any) {
     console.error("Leaderboard upsert exception:", err);

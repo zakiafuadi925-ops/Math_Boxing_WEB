@@ -410,7 +410,29 @@ export const fetchGlobalLeaderboard = async (
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-        const formatted = formatLeaderboardRows(json.data, currentUserName);
+        let serverList = [...json.data];
+        if (currentUserName && currentUserLifetimeScore > 0) {
+          const userKey = currentUserName.trim().toLowerCase();
+          const existingEntry = serverList.find(
+            (m) => (m.player_name || m.username || "").trim().toLowerCase() === userKey
+          );
+          if (existingEntry) {
+            existingEntry.total_score = Math.max(existingEntry.total_score || 0, currentUserLifetimeScore);
+          } else {
+            serverList.push({
+              id: `user_active_${Date.now()}`,
+              player_name: currentUserName,
+              total_score: currentUserLifetimeScore,
+              wins: 1,
+              matches_played: 1,
+              highest_combo: 0,
+              avatar_url: "🥊",
+            });
+          }
+          serverList.sort((a, b) => (b.total_score || 0) - (a.total_score || 0));
+        }
+
+        const formatted = formatLeaderboardRows(serverList, currentUserName);
         try {
           localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(formatted));
         } catch {}
@@ -481,6 +503,28 @@ export const fetchGlobalLeaderboard = async (
         );
 
         if (merged.length > 0) {
+          // Guarantee that active player has their latest accumulated lifetime score reflected immediately
+          if (currentUserName && currentUserLifetimeScore > 0) {
+            const userKey = currentUserName.trim().toLowerCase();
+            const existingEntry = merged.find(
+              (m) => (m.player_name || m.username || "").trim().toLowerCase() === userKey
+            );
+            if (existingEntry) {
+              existingEntry.total_score = Math.max(existingEntry.total_score || 0, currentUserLifetimeScore);
+            } else {
+              merged.push({
+                id: `user_active_${Date.now()}`,
+                player_name: currentUserName,
+                total_score: currentUserLifetimeScore,
+                wins: 1,
+                matches_played: 1,
+                highest_combo: 0,
+                avatar_url: "🥊",
+              });
+            }
+            merged.sort((a, b) => (b.total_score || 0) - (a.total_score || 0));
+          }
+
           const formatted = formatLeaderboardRows(merged, currentUserName);
           try {
             localStorage.setItem(LOCAL_LEADERBOARD_KEY, JSON.stringify(formatted));
@@ -676,9 +720,10 @@ export const saveMatchScoreToLeaderboard = async ({
     console.warn("Backend saveMatchScore error:", e);
   }
 
-  // 2. Direct client-side Supabase write if available
-  if (supabase) {
+  // 2. Direct client-side Supabase write if available (for Vercel & Client SPA environments)
+  if (isConfigured && supabase) {
     try {
+      // Direct write to match_history
       supabase
         .from("match_history")
         .insert({
@@ -693,7 +738,58 @@ export const saveMatchScoreToLeaderboard = async ({
         .then(({ error }) => {
           if (error) console.warn("Client-side match_history write error:", error.message);
         });
-    } catch {}
+
+      // Direct write/upsert to leaderboard
+      supabase
+        .from("leaderboard")
+        .upsert(
+          {
+            player_name: name,
+            total_score: newLifetimeScore,
+            wins: matchResult === "win" ? 1 : 0,
+            matches_played: 1,
+            highest_combo: highestCombo,
+            avatar_url: avatar || "",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "player_name" }
+        )
+        .then(({ error }) => {
+          if (error) {
+            // Fallback without onConflict if constraint name differs
+            supabase.from("leaderboard").insert({
+              player_name: name,
+              total_score: newLifetimeScore,
+              wins: matchResult === "win" ? 1 : 0,
+              matches_played: 1,
+              highest_combo: highestCombo,
+              avatar_url: avatar || "",
+              updated_at: new Date().toISOString(),
+            });
+          }
+        });
+
+      // If user is logged in, also update profiles
+      if (userId) {
+        supabase
+          .from("profiles")
+          .upsert(
+            {
+              id: userId,
+              username: name,
+              avatar_url: avatar || "",
+              total_score: newLifetimeScore,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "id" }
+          )
+          .then(({ error }) => {
+            if (error) console.warn("Client profiles upsert warning:", error.message);
+          });
+      }
+    } catch (dbErr) {
+      console.warn("Direct Supabase write error:", dbErr);
+    }
   }
 
   // 2. Simpan juga ke cache lokal
