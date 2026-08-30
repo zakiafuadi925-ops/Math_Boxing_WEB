@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import { Delete, CornerDownLeft, Lock } from 'lucide-react';
 import { audio } from '../utils/audio';
 
@@ -8,13 +8,13 @@ interface NumpadProps {
   disabled?: boolean;
 }
 
-export const Numpad: React.FC<NumpadProps> = ({ onSubmitAnswer, isLocked, disabled }) => {
+export const Numpad: React.FC<NumpadProps> = memo(({ onSubmitAnswer, isLocked, disabled }) => {
   const [inputVal, setInputVal] = useState<string>('');
 
   const handleDigit = useCallback((d: string) => {
     if (isLocked || disabled) return;
     audio.playClick();
-    if (inputVal.length >= 6) return; // Prevent unreasonable string length
+    if (inputVal.length >= 6) return;
     setInputVal((prev) => (prev === '0' ? d : prev + d));
   }, [isLocked, disabled, inputVal]);
 
@@ -62,7 +62,7 @@ export const Numpad: React.FC<NumpadProps> = ({ onSubmitAnswer, isLocked, disabl
   }, [handleDigit, handleMinus, handleClear, handleSubmit, isLocked, disabled]);
 
   return (
-    <div className="w-full max-w-md mx-auto bg-slate-900/90 backdrop-blur border border-slate-700/80 rounded-2xl p-2 sm:p-3 shadow-xl">
+    <div className="w-full max-w-md mx-auto bg-slate-900/95 border border-slate-700/80 rounded-2xl p-2 sm:p-3 shadow-xl touch-fast gpu-accelerated">
       {/* Display Screen */}
       <div className="relative mb-1.5 sm:mb-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1 sm:py-1.5 text-right flex items-center justify-between min-h-[38px] sm:min-h-[46px]">
         <span className="text-[10px] sm:text-xs uppercase tracking-wider font-bold text-slate-500">
@@ -77,7 +77,7 @@ export const Numpad: React.FC<NumpadProps> = ({ onSubmitAnswer, isLocked, disabl
         </span>
 
         {isLocked && (
-          <div className="absolute inset-0 bg-red-950/80 backdrop-blur-[2px] rounded-xl flex items-center justify-center gap-1.5 text-red-300 font-bold text-xs">
+          <div className="absolute inset-0 bg-red-950/90 rounded-xl flex items-center justify-center gap-1.5 text-red-300 font-bold text-xs">
             <Lock className="w-3.5 h-3.5 animate-spin" />
             JAWABAN SALAH! TUNGGU 1s
           </div>
@@ -89,9 +89,10 @@ export const Numpad: React.FC<NumpadProps> = ({ onSubmitAnswer, isLocked, disabl
         {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((num) => (
           <button
             key={num}
+            type="button"
             onClick={() => handleDigit(num)}
             disabled={isLocked || disabled}
-            className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-all duration-75 text-slate-100 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none"
+            className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-colors duration-75 text-slate-100 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
           >
             {num}
           </button>
@@ -99,26 +100,29 @@ export const Numpad: React.FC<NumpadProps> = ({ onSubmitAnswer, isLocked, disabl
 
         {/* Bottom Row Controls */}
         <button
+          type="button"
           onClick={handleClear}
           disabled={isLocked || disabled}
-          className="w-full h-10 sm:h-12 md:h-13 bg-rose-900/80 hover:bg-rose-800 active:bg-rose-600 border-b-2 sm:border-b-4 border-rose-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-sm sm:text-base font-bold text-rose-200 transition-all duration-75 flex items-center justify-center gap-1 shadow-md disabled:opacity-50 disabled:pointer-events-none"
+          className="w-full h-10 sm:h-12 md:h-13 bg-rose-900/80 hover:bg-rose-800 active:bg-rose-600 border-b-2 sm:border-b-4 border-rose-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-sm sm:text-base font-bold text-rose-200 transition-colors duration-75 flex items-center justify-center gap-1 shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
         >
           <Delete className="w-4 h-4" />
           CLR
         </button>
 
         <button
+          type="button"
           onClick={() => handleDigit('0')}
           disabled={isLocked || disabled}
-          className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-all duration-75 text-slate-100 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none"
+          className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-colors duration-75 text-slate-100 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
         >
           0
         </button>
 
         <button
+          type="button"
           onClick={handleMinus}
           disabled={isLocked || disabled}
-          className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-all duration-75 text-amber-400 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none"
+          className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-colors duration-75 text-amber-400 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
         >
           -
         </button>
@@ -127,9 +131,10 @@ export const Numpad: React.FC<NumpadProps> = ({ onSubmitAnswer, isLocked, disabl
       {/* Full Width Submit Enter Button */}
       <div className="mt-1.5 sm:mt-2">
         <button
+          type="button"
           onClick={handleSubmit}
           disabled={isLocked || disabled || inputVal === '' || inputVal === '-'}
-          className="w-full h-10 sm:h-12 md:h-13 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 active:scale-[0.98] border-b-2 sm:border-b-4 border-amber-700 rounded-lg sm:rounded-xl text-slate-950 font-arcade text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg transition-all disabled:opacity-50 disabled:pointer-events-none glow-gold"
+          className="w-full h-10 sm:h-12 md:h-13 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 active:scale-[0.98] border-b-2 sm:border-b-4 border-amber-700 rounded-lg sm:rounded-xl text-slate-950 font-arcade text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg transition-transform disabled:opacity-50 disabled:pointer-events-none glow-gold touch-fast"
         >
           <CornerDownLeft className="w-4 h-4 sm:w-5 sm:h-5 stroke-[3]" />
           SERANG / ENTER
@@ -137,4 +142,4 @@ export const Numpad: React.FC<NumpadProps> = ({ onSubmitAnswer, isLocked, disabl
       </div>
     </div>
   );
-};
+});

@@ -1,14 +1,27 @@
 class SoundFXManager {
   private ctx: AudioContext | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
   public soundEnabled: boolean = true;
 
   private initCtx() {
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AudioCtx();
+      try {
+        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        this.ctx = new AudioCtx();
+        // Pre-create reusable noise buffer to eliminate GC allocations during combat
+        const sampleRate = this.ctx.sampleRate || 44100;
+        const bufferSize = Math.floor(sampleRate * 0.2);
+        this.noiseBuffer = this.ctx.createBuffer(1, bufferSize, sampleRate);
+        const output = this.noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+          output[i] = Math.random() * 2 - 1;
+        }
+      } catch (e) {
+        console.warn("AudioContext init error:", e);
+      }
     }
     if (this.ctx && this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      this.ctx.resume().catch(() => {});
     }
   }
 
@@ -60,31 +73,26 @@ class SoundFXManager {
     osc.start(now);
     osc.stop(now + 0.25);
 
-    // Noise crackle
-    const bufferSize = this.ctx.sampleRate * 0.15;
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const output = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      output[i] = Math.random() * 2 - 1;
+    // Use cached noise crackle without allocating new buffers every hit
+    if (this.noiseBuffer) {
+      const whiteNoise = this.ctx.createBufferSource();
+      whiteNoise.buffer = this.noiseBuffer;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(800, now);
+
+      const noiseGain = this.ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.3, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+      whiteNoise.connect(filter);
+      filter.connect(noiseGain);
+      noiseGain.connect(this.ctx.destination);
+
+      whiteNoise.start(now);
+      whiteNoise.stop(now + 0.15);
     }
-
-    const whiteNoise = this.ctx.createBufferSource();
-    whiteNoise.buffer = buffer;
-
-    const filter = this.ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(800, now);
-
-    const noiseGain = this.ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.3, now);
-    noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-
-    whiteNoise.connect(filter);
-    filter.connect(noiseGain);
-    noiseGain.connect(this.ctx.destination);
-
-    whiteNoise.start(now);
-    whiteNoise.stop(now + 0.15);
   }
 
   // Play Swing Miss Whoosh

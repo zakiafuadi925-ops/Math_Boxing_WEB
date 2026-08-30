@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, memo } from 'react';
 import { PlayerState } from '../types';
-import { Crown, Flame, Sparkles, Zap } from 'lucide-react';
+import { Flame } from 'lucide-react';
 import { getComboMultiplier } from './ComboTracker';
 
 interface BoxerCanvasProps {
@@ -24,7 +24,7 @@ export interface DamagePopup {
   target: 'p1' | 'p2';
 }
 
-export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
+export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
   p1,
   p2,
   lastHitBy,
@@ -38,6 +38,15 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
   const prevP1Health = useRef(p1.health);
   const prevP2Health = useRef(p2.health);
 
+  // References for smooth 60-120fps animation loop without restarting on state change
+  const p1Ref = useRef(p1);
+  const p2Ref = useRef(p2);
+  const lastHitByRef = useRef(lastHitBy);
+
+  p1Ref.current = p1;
+  p2Ref.current = p2;
+  lastHitByRef.current = lastHitBy;
+
   const [popups, setPopups] = useState<DamagePopup[]>([]);
   const [p1HealthPulse, setP1HealthPulse] = useState(false);
   const [p2HealthPulse, setP2HealthPulse] = useState(false);
@@ -50,14 +59,14 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
   useEffect(() => {
     if (p1.health < prevP1Health.current || lastHitBy === 'p2') {
       setP1HealthPulse(true);
-      const timer = setTimeout(() => setP1HealthPulse(false), 550);
+      const timer = setTimeout(() => setP1HealthPulse(false), 400);
       prevP1Health.current = p1.health;
       return () => clearTimeout(timer);
     } else if (p1.health > prevP1Health.current) {
       // P1 Healed!
       const healAmount = p1.health - prevP1Health.current;
       setP1HealPulse(true);
-      const timer = setTimeout(() => setP1HealPulse(false), 800);
+      const timer = setTimeout(() => setP1HealPulse(false), 600);
 
       // Trigger floating Heal popup over P1
       const jitterX = (Math.random() - 0.5) * 6;
@@ -68,11 +77,11 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
         scoreText: `+${healAmount} HP`,
         subtext: '💚 3-COMBO HEAL!',
         isCritical: true,
-        colorClass: 'text-emerald-300 drop-shadow-[0_4px_16px_rgba(52,211,153,1)] scale-110',
-        badgeBg: 'bg-emerald-950/90 border-emerald-400 text-emerald-300 ring-2 ring-emerald-500/50',
+        colorClass: 'text-emerald-300 drop-shadow-[0_2px_8px_rgba(52,211,153,0.8)] scale-105',
+        badgeBg: 'bg-emerald-950/95 border-emerald-400 text-emerald-300 ring-1 ring-emerald-500/50',
         target: 'p1',
       };
-      setPopups((prev) => [...prev, newPopup]);
+      setPopups((prev) => [...prev.slice(-3), newPopup]);
       prevP1Health.current = p1.health;
       return () => clearTimeout(timer);
     }
@@ -82,14 +91,14 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
   useEffect(() => {
     if (p2.health < prevP2Health.current || lastHitBy === 'p1') {
       setP2HealthPulse(true);
-      const timer = setTimeout(() => setP2HealthPulse(false), 550);
+      const timer = setTimeout(() => setP2HealthPulse(false), 400);
       prevP2Health.current = p2.health;
       return () => clearTimeout(timer);
     } else if (p2.health > prevP2Health.current) {
       // P2 Healed!
       const healAmount = p2.health - prevP2Health.current;
       setP2HealPulse(true);
-      const timer = setTimeout(() => setP2HealPulse(false), 800);
+      const timer = setTimeout(() => setP2HealPulse(false), 600);
 
       const jitterX = (Math.random() - 0.5) * 6;
       const newPopup: DamagePopup = {
@@ -99,11 +108,11 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
         scoreText: `+${healAmount} HP`,
         subtext: '💚 RECOVERY!',
         isCritical: true,
-        colorClass: 'text-emerald-300 drop-shadow-[0_4px_16px_rgba(52,211,153,1)] scale-110',
-        badgeBg: 'bg-emerald-950/90 border-emerald-400 text-emerald-300 ring-2 ring-emerald-500/50',
+        colorClass: 'text-emerald-300 drop-shadow-[0_2px_8px_rgba(52,211,153,0.8)] scale-105',
+        badgeBg: 'bg-emerald-950/95 border-emerald-400 text-emerald-300 ring-1 ring-emerald-500/50',
         target: 'p2',
       };
-      setPopups((prev) => [...prev, newPopup]);
+      setPopups((prev) => [...prev.slice(-3), newPopup]);
       prevP2Health.current = p2.health;
       return () => clearTimeout(timer);
     }
@@ -112,7 +121,6 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
 
   // Track score changes & trigger floating damage text popups
   useEffect(() => {
-    // Handle game resets
     if (p1.score < prevP1Score.current) {
       prevP1Score.current = p1.score;
     }
@@ -133,21 +141,21 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
 
       const newPopup: DamagePopup = {
         id: `p1-hit-${Date.now()}-${Math.random()}`,
-        x: 68 + jitterX, // Positioned over P2 (Right Boxer)
+        x: 68 + jitterX,
         y: 28 + jitterY,
         scoreText: `+${diff} PTS`,
         subtext: p1.combo > 1 ? `🔥 ${p1.combo}x COMBO!` : `💥 ${actionLabel}!`,
         isCritical: isCrit,
         colorClass: isCrit
-          ? 'text-yellow-300 drop-shadow-[0_4px_16px_rgba(250,204,21,1)] scale-110'
-          : 'text-amber-400 drop-shadow-[0_4px_12px_rgba(245,158,11,0.9)]',
+          ? 'text-yellow-300 drop-shadow-[0_2px_10px_rgba(250,204,21,0.8)] scale-105'
+          : 'text-amber-400 drop-shadow-[0_2px_8px_rgba(245,158,11,0.8)]',
         badgeBg: isCrit
-          ? 'bg-amber-950/90 border-amber-400 text-amber-300'
-          : 'bg-slate-950/80 border-amber-500/50 text-amber-200',
+          ? 'bg-amber-950/95 border-amber-400 text-amber-300'
+          : 'bg-slate-950/90 border-amber-500/50 text-amber-200',
         target: 'p2',
       };
 
-      setPopups((prev) => [...prev, newPopup]);
+      setPopups((prev) => [...prev.slice(-3), newPopup]);
       prevP1Score.current = p1.score;
     }
 
@@ -159,17 +167,17 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
 
       const newPopup: DamagePopup = {
         id: `p2-hit-${Date.now()}-${Math.random()}`,
-        x: 32 + jitterX, // Positioned over P1 (Left Boxer)
+        x: 32 + jitterX,
         y: 28 + jitterY,
         scoreText: `+${diff} PTS`,
         subtext: `⚡ AI HIT!`,
         isCritical: false,
-        colorClass: 'text-rose-400 drop-shadow-[0_4px_14px_rgba(244,63,94,1)]',
-        badgeBg: 'bg-rose-950/90 border-rose-500/60 text-rose-200',
+        colorClass: 'text-rose-400 drop-shadow-[0_2px_8px_rgba(244,63,94,0.8)]',
+        badgeBg: 'bg-rose-950/95 border-rose-500/60 text-rose-200',
         target: 'p1',
       };
 
-      setPopups((prev) => [...prev, newPopup]);
+      setPopups((prev) => [...prev.slice(-3), newPopup]);
       prevP2Score.current = p2.score;
     }
   }, [p1.score, p2.score, p1.combo, p1.currentAction, p2.currentAction]);
@@ -179,44 +187,54 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
     if (popups.length === 0) return;
     const timer = setTimeout(() => {
       setPopups((prev) => prev.slice(1));
-    }, 1250);
+    }, 1000);
     return () => clearTimeout(timer);
   }, [popups]);
 
+  // Persistent High-Performance Canvas Rendering Loop (No teardown on prop changes)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
     let animId: number;
     let time = 0;
+    let lastRenderTime = performance.now();
 
-    const render = () => {
-      time += 0.05;
-      const width = canvas.width;
-      const height = canvas.height;
+    const width = 800;
+    const height = 450;
 
-      // 1. Draw Ring Background & Ropes
-      ctx.clearRect(0, 0, width, height);
+    // Pre-create gradients once to avoid 60fps GC allocation
+    const arenaGradient = ctx.createLinearGradient(0, 0, 0, height);
+    arenaGradient.addColorStop(0, '#0f172a');
+    arenaGradient.addColorStop(0.5, '#1e1b4b');
+    arenaGradient.addColorStop(1, '#090d16');
 
-      // Arena Floor Gradient
-      const arenaGradient = ctx.createLinearGradient(0, 0, 0, height);
-      arenaGradient.addColorStop(0, '#0f172a');
-      arenaGradient.addColorStop(0.5, '#1e1b4b');
-      arenaGradient.addColorStop(1, '#090d16');
+    const spotlight = ctx.createRadialGradient(width / 2, height / 2, 20, width / 2, height / 2, width * 0.6);
+    spotlight.addColorStop(0, 'rgba(238, 242, 255, 0.12)');
+    spotlight.addColorStop(1, 'rgba(0,0,0,0)');
+
+    const matY = height * 0.7;
+
+    const render = (now: number) => {
+      const delta = (now - lastRenderTime) / 1000;
+      lastRenderTime = now;
+      time += Math.min(delta * 3, 0.1); // Smooth stable time increment
+
+      const curP1 = p1Ref.current;
+      const curP2 = p2Ref.current;
+      const curLastHitBy = lastHitByRef.current;
+
+      // 1. Clear & Draw Arena Floor
       ctx.fillStyle = arenaGradient;
       ctx.fillRect(0, 0, width, height);
 
-      // Spotlight effect
-      const spotlight = ctx.createRadialGradient(width / 2, height / 2, 20, width / 2, height / 2, width * 0.6);
-      spotlight.addColorStop(0, 'rgba(238, 242, 255, 0.15)');
-      spotlight.addColorStop(1, 'rgba(0,0,0,0)');
+      // Spotlight
       ctx.fillStyle = spotlight;
       ctx.fillRect(0, 0, width, height);
 
       // Canvas Floor Mat
-      const matY = height * 0.7;
       ctx.fillStyle = '#334155';
       ctx.beginPath();
       ctx.moveTo(width * 0.05, height);
@@ -226,66 +244,64 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
       ctx.closePath();
       ctx.fill();
 
-      // Mat Center Logo Ring
+      // Mat Center Ring
       ctx.strokeStyle = '#e2e8f0';
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.ellipse(width / 2, matY + 40, width * 0.22, 20, 0, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Ring Ropes
+      // Ring Ropes (Simulated wave)
       const ropeColors = ['#ef4444', '#ffffff', '#3b82f6'];
-      ropeColors.forEach((color, idx) => {
+      for (let idx = 0; idx < 3; idx++) {
         const ropeY = matY - 40 - idx * 25;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 4;
+        ctx.strokeStyle = ropeColors[idx];
+        ctx.lineWidth = 3.5;
         ctx.beginPath();
-        ctx.moveTo(0, ropeY + Math.sin(time + idx) * 2);
-        ctx.lineTo(width, ropeY + Math.cos(time + idx) * 2);
+        ctx.moveTo(0, ropeY + Math.sin(time + idx) * 1.5);
+        ctx.lineTo(width, ropeY + Math.cos(time + idx) * 1.5);
         ctx.stroke();
-      });
+      }
 
       // Turnbuckle Corner Posts
-      ctx.fillStyle = '#ef4444'; // Left Corner
+      ctx.fillStyle = '#ef4444';
       ctx.fillRect(width * 0.02, matY - 120, 12, 130);
-      ctx.fillStyle = '#3b82f6'; // Right Corner
+      ctx.fillStyle = '#3b82f6';
       ctx.fillRect(width * 0.98 - 12, matY - 120, 12, 130);
 
       // 2. Draw Boxers
-      // P1 (Left Boxer, Red Trunks)
       drawBoxer(
         ctx,
         width * 0.32,
         matY + 10,
-        p1,
-        'right', // faces right
+        curP1,
+        'right',
         time,
-        lastHitBy === 'p2'
+        curLastHitBy === 'p2'
       );
 
-      // P2 (Right Boxer, Blue Trunks)
       drawBoxer(
         ctx,
         width * 0.68,
         matY + 10,
-        p2,
-        'left', // faces left
+        curP2,
+        'left',
         time,
-        lastHitBy === 'p1'
+        curLastHitBy === 'p1'
       );
 
       animId = requestAnimationFrame(render);
     };
 
-    render();
+    animId = requestAnimationFrame(render);
 
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [p1, p2, lastHitBy]);
+  }, []); // Run ONCE mounted, read state from refs for ultimate 60-120fps smoothness
 
   return (
-    <div className="relative w-full flex-1 min-h-[150px] max-h-[250px] sm:max-h-[320px] bg-slate-900 rounded-2xl overflow-hidden shadow-2xl border-2 border-slate-800 flex items-center justify-center">
+    <div className="relative w-full flex-1 min-h-[140px] max-h-[240px] sm:max-h-[300px] bg-slate-900 rounded-2xl overflow-hidden shadow-xl border border-slate-800 flex items-center justify-center gpu-accelerated">
       {/* Top Left P1 Arcade Health Bar HUD */}
       <div className="absolute top-1.5 left-2 sm:top-2.5 sm:left-3 z-30 pointer-events-none flex flex-col gap-0.5 w-24 sm:w-36 select-none">
         <div className="flex items-center justify-between text-[9px] sm:text-xs font-black uppercase tracking-wider text-slate-200">
@@ -295,9 +311,9 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
           </span>
           <span className={`font-arcade font-bold transition-all ${
             p1HealthPulse
-              ? 'text-red-400 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(239,68,68,1)]'
+              ? 'text-red-400 animate-pulse scale-105 drop-shadow-[0_0_6px_rgba(239,68,68,1)]'
               : p1HealPulse
-              ? 'text-emerald-300 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(52,211,153,1)]'
+              ? 'text-emerald-300 animate-pulse scale-105 drop-shadow-[0_0_6px_rgba(52,211,153,1)]'
               : 'text-slate-300'
           }`}>
             {p1.health}%
@@ -305,21 +321,21 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
         </div>
 
         <div
-          className={`w-full h-2.5 sm:h-3.5 bg-slate-950/90 rounded-full border p-0.5 transition-all duration-300 backdrop-blur-sm ${
+          className={`w-full h-2.5 sm:h-3.5 bg-slate-950/90 rounded-full border p-0.5 transition-all duration-200 ${
             p1HealthPulse
-              ? 'border-red-500 bg-red-950/90 shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse scale-105 ring-1 ring-red-400'
+              ? 'border-red-500 bg-red-950/90 shadow-[0_0_12px_rgba(239,68,68,0.8)]'
               : p1HealPulse
-              ? 'border-emerald-400 bg-emerald-950/90 shadow-[0_0_20px_rgba(52,211,153,1)] animate-pulse scale-105 ring-1 ring-emerald-400'
-              : 'border-slate-700/80 shadow-md'
+              ? 'border-emerald-400 bg-emerald-950/90 shadow-[0_0_12px_rgba(52,211,153,0.8)]'
+              : 'border-slate-700/80 shadow-sm'
           }`}
         >
           <div
             style={{ width: `${Math.max(0, Math.min(100, p1.health))}%` }}
-            className={`h-full rounded-full transition-all duration-300 ${
+            className={`h-full rounded-full transition-all duration-200 ${
               p1HealthPulse
-                ? 'bg-gradient-to-r from-red-600 via-yellow-200 to-red-400 animate-pulse'
+                ? 'bg-gradient-to-r from-red-600 via-yellow-200 to-red-400'
                 : p1HealPulse
-                ? 'bg-gradient-to-r from-emerald-500 via-teal-300 to-emerald-400 animate-pulse'
+                ? 'bg-gradient-to-r from-emerald-500 via-teal-300 to-emerald-400'
                 : p1.health <= 30
                 ? 'bg-red-600 animate-pulse'
                 : 'bg-gradient-to-r from-red-600 via-amber-500 to-emerald-500'
@@ -330,16 +346,16 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
 
       {/* Center Dynamic Combo & Multiplier Banner */}
       {combo > 0 && (
-        <div className="absolute top-1.5 sm:top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex items-center gap-1.5 animate-bounce">
-          <div className="px-2 py-0.5 rounded-full bg-slate-950/90 border border-amber-500/60 backdrop-blur-md shadow-lg flex items-center gap-1 text-[10px] sm:text-xs font-arcade font-bold text-amber-300">
-            <Flame className="w-3 h-3 text-amber-400 fill-amber-400" />
+        <div className="absolute top-1.5 sm:top-2 left-1/2 -translate-x-1/2 z-30 pointer-events-none flex items-center gap-1.5 gpu-accelerated">
+          <div className="px-2 py-0.5 rounded-full bg-slate-950/90 border border-amber-500/60 shadow-md flex items-center gap-1 text-[10px] sm:text-xs font-arcade font-bold text-amber-300">
+            <Flame className="w-3 h-3 text-amber-400 fill-amber-400 shrink-0" />
             <span>{combo}x COMBO</span>
             {comboInfo.multiplier > 1 && (
               <span className="text-yellow-300 font-extrabold">({comboInfo.multiplier}x PTS)</span>
             )}
           </div>
           {lastBonusPoints && lastBonusPoints > 0 && (
-            <div className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-arcade text-[9px] font-black shadow-md">
+            <div className="px-1.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-arcade text-[9px] font-black shadow-sm">
               +{lastBonusPoints} BONUS
             </div>
           )}
@@ -351,9 +367,9 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
         <div className="flex items-center justify-between w-full text-[9px] sm:text-xs font-black uppercase tracking-wider text-slate-200">
           <span className={`font-arcade font-bold transition-all ${
             p2HealthPulse
-              ? 'text-red-400 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(239,68,68,1)]'
+              ? 'text-red-400 animate-pulse scale-105 drop-shadow-[0_0_6px_rgba(239,68,68,1)]'
               : p2HealPulse
-              ? 'text-emerald-300 animate-pulse scale-110 drop-shadow-[0_0_8px_rgba(52,211,153,1)]'
+              ? 'text-emerald-300 animate-pulse scale-105 drop-shadow-[0_0_6px_rgba(52,211,153,1)]'
               : 'text-slate-300'
           }`}>
             {p2.health}%
@@ -365,21 +381,21 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
         </div>
 
         <div
-          className={`w-full h-2.5 sm:h-3.5 bg-slate-950/90 rounded-full border p-0.5 transition-all duration-300 backdrop-blur-sm ${
+          className={`w-full h-2.5 sm:h-3.5 bg-slate-950/90 rounded-full border p-0.5 transition-all duration-200 ${
             p2HealthPulse
-              ? 'border-red-500 bg-red-950/90 shadow-[0_0_20px_rgba(239,68,68,1)] animate-pulse scale-105 ring-1 ring-red-400'
+              ? 'border-red-500 bg-red-950/90 shadow-[0_0_12px_rgba(239,68,68,0.8)]'
               : p2HealPulse
-              ? 'border-emerald-400 bg-emerald-950/90 shadow-[0_0_20px_rgba(52,211,153,1)] animate-pulse scale-105 ring-1 ring-emerald-400'
-              : 'border-slate-700/80 shadow-md'
+              ? 'border-emerald-400 bg-emerald-950/90 shadow-[0_0_12px_rgba(52,211,153,0.8)]'
+              : 'border-slate-700/80 shadow-sm'
           }`}
         >
           <div
             style={{ width: `${Math.max(0, Math.min(100, p2.health))}%` }}
-            className={`h-full rounded-full transition-all duration-300 ml-auto ${
+            className={`h-full rounded-full transition-all duration-200 ml-auto ${
               p2HealthPulse
-                ? 'bg-gradient-to-r from-blue-600 via-yellow-200 to-red-500 animate-pulse'
+                ? 'bg-gradient-to-r from-blue-600 via-yellow-200 to-red-500'
                 : p2HealPulse
-                ? 'bg-gradient-to-r from-emerald-500 via-teal-300 to-emerald-400 animate-pulse'
+                ? 'bg-gradient-to-r from-emerald-500 via-teal-300 to-emerald-400'
                 : p2.health <= 30
                 ? 'bg-red-600 animate-pulse'
                 : 'bg-gradient-to-r from-blue-600 via-cyan-400 to-emerald-400'
@@ -397,7 +413,7 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
 
       {/* Bottom Floating Micro Emote Trigger Buttons */}
       {onTriggerEmote && (
-        <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 bg-slate-950/80 p-1 rounded-full border border-slate-700/60 backdrop-blur-sm shadow-md">
+        <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1 bg-slate-950/85 p-1 rounded-full border border-slate-700/60 shadow-md">
           {[
             { id: 'taunt_crown' as const, emoji: '👑', label: 'Juara' },
             { id: 'taunt_flex' as const, emoji: '💪', label: 'Otot' },
@@ -407,9 +423,9 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
             <button
               key={em.id}
               onClick={() => onTriggerEmote(em.id)}
-              className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full text-xs flex items-center justify-center transition-all duration-100 active:scale-90 ${
+              className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full text-xs flex items-center justify-center transition-all duration-75 active:scale-90 touch-fast ${
                 p1.currentAction === em.id
-                  ? 'bg-amber-500 text-slate-950 scale-110 shadow-md ring-1 ring-amber-300 font-bold'
+                  ? 'bg-amber-500 text-slate-950 scale-105 shadow-md ring-1 ring-amber-300 font-bold'
                   : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700'
               }`}
               title={em.label}
@@ -426,11 +442,11 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
           <div
             key={popup.id}
             style={{ left: `${popup.x}%`, top: `${popup.y}%` }}
-            className="absolute -translate-x-1/2 -translate-y-1/2 animate-float-damage flex flex-col items-center justify-center select-none"
+            className="absolute -translate-x-1/2 -translate-y-1/2 animate-float-damage flex flex-col items-center justify-center select-none gpu-accelerated"
           >
             {/* Visual Starburst Impact Background Ring */}
             <div
-              className={`absolute w-14 h-14 sm:w-16 sm:h-16 rounded-full border-2 border-dashed ${
+              className={`absolute w-12 h-12 sm:w-14 sm:h-14 rounded-full border border-dashed ${
                 popup.isCritical
                   ? 'border-amber-400 bg-amber-400/20'
                   : popup.target === 'p1'
@@ -440,14 +456,14 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
             />
 
             {/* Main Floating Damage / Score Text */}
-            <div className="flex items-center gap-1 font-arcade text-2xl sm:text-4xl font-black tracking-tight whitespace-nowrap">
+            <div className="flex items-center gap-1 font-arcade text-xl sm:text-3xl font-black tracking-tight whitespace-nowrap">
               <span className={popup.colorClass}>{popup.scoreText}</span>
             </div>
 
             {/* Subtext Badge (Combo / Punch Action) */}
             {popup.subtext && (
               <div
-                className={`mt-0.5 px-2 py-0.5 rounded-full border text-[9px] sm:text-xs font-arcade font-bold shadow-xl backdrop-blur-sm ${popup.badgeBg}`}
+                className={`mt-0.5 px-2 py-0.5 rounded-full border text-[9px] sm:text-xs font-arcade font-bold shadow-md ${popup.badgeBg}`}
               >
                 {popup.subtext}
               </div>
@@ -457,7 +473,7 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = ({
       </div>
     </div>
   );
-};
+});
 
 function drawBoxer(
   ctx: CanvasRenderingContext2D,

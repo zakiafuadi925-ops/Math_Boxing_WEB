@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { MathQuestion } from '../types';
 import { Sparkles, Trophy, Flame, Zap, Star } from 'lucide-react';
 
@@ -6,7 +6,7 @@ interface QuestionCardProps {
   question: MathQuestion;
 }
 
-export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
+export const QuestionCard: React.FC<QuestionCardProps> = memo(({ question }) => {
   const getCategoryLabel = (category: string) => {
     switch (category) {
       case 'counting': return '🍎 COUNTING';
@@ -22,7 +22,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
     const diff = question.difficulty || 'easy';
     if (diff === 'hard') {
       return (
-        <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-red-950/90 text-red-400 border border-red-500/50 flex items-center gap-1 uppercase tracking-wider animate-pulse">
+        <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-red-950/90 text-red-400 border border-red-500/50 flex items-center gap-1 uppercase tracking-wider">
           <Flame className="w-2.5 h-2.5 text-red-500" /> SULIT
         </span>
       );
@@ -42,7 +42,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
   };
 
   return (
-    <div className="w-full max-w-md mx-auto bg-slate-900/90 border border-slate-700/80 rounded-xl px-2.5 py-1.5 sm:py-2 shadow-lg text-center relative overflow-hidden">
+    <div className="w-full max-w-md mx-auto bg-slate-900/95 border border-slate-700/80 rounded-xl px-2.5 py-1.5 sm:py-2 shadow-lg text-center relative overflow-hidden gpu-accelerated">
       {/* Top Header Row */}
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-1.5">
@@ -77,8 +77,7 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
             {Array.from({ length: question.visualItem.count }).map((_, idx) => (
               <span
                 key={idx}
-                className="text-xl sm:text-2xl animate-bounce"
-                style={{ animationDelay: `${idx * 0.08}s` }}
+                className="text-xl sm:text-2xl"
               >
                 {question.visualItem?.icon}
               </span>
@@ -88,6 +87,6 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({ question }) => {
       </div>
     </div>
   );
-};
+});
 
 
