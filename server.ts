@@ -147,16 +147,28 @@ app.post("/api/leaderboard", async (req, res) => {
     return res.status(400).json({ success: false, error: "player_name is required" });
   }
 
+  const cleanName = String(player_name).trim();
+
   try {
-    // 1. Search for existing record by user_id or player_name
-    let query = supabaseServer.from("leaderboard").select("*");
+    // 1. Search for existing record by user_id or player_name (safely without space formatting errors)
+    let existing: any = null;
     if (user_id) {
-      query = query.or(`user_id.eq.${user_id},player_name.eq.${player_name}`);
-    } else {
-      query = query.eq("player_name", player_name);
+      const { data: byUser } = await supabaseServer
+        .from("leaderboard")
+        .select("*")
+        .eq("user_id", user_id)
+        .maybeSingle();
+      if (byUser) existing = byUser;
     }
-    const { data: existingList } = await query.limit(1);
-    const existing = existingList && existingList.length > 0 ? existingList[0] : null;
+
+    if (!existing && cleanName) {
+      const { data: byName } = await supabaseServer
+        .from("leaderboard")
+        .select("*")
+        .ilike("player_name", cleanName)
+        .maybeSingle();
+      if (byName) existing = byName;
+    }
 
     const nextWins = (existing?.wins ?? 0) + (wins ?? 0);
     const nextMatches = (existing?.matches_played ?? 0) + (matches_played ?? 1);
@@ -166,10 +178,10 @@ app.post("/api/leaderboard", async (req, res) => {
       (existing?.total_score ?? 0) + (score_increment ?? 0),
       existing?.total_score ?? 0
     );
-    const finalAvatar = avatar_url || avatar || existing?.avatar_url || existing?.avatar;
+    const finalAvatar = avatar_url || avatar || existing?.avatar_url || existing?.avatar || "";
 
     const payload: any = {
-      player_name,
+      player_name: cleanName,
       total_score: nextScore,
       wins: nextWins,
       matches_played: nextMatches,
@@ -186,13 +198,6 @@ app.post("/api/leaderboard", async (req, res) => {
         .from("leaderboard")
         .update(payload)
         .eq("id", existing.id)
-        .select()
-        .maybeSingle();
-    } else if (existing) {
-      saveResult = await supabaseServer
-        .from("leaderboard")
-        .update(payload)
-        .eq("player_name", player_name)
         .select()
         .maybeSingle();
     } else {
@@ -213,11 +218,11 @@ app.post("/api/leaderboard", async (req, res) => {
       }
     }
 
-    if (saveResult.error) {
+    if (saveResult?.error) {
       console.warn("Leaderboard save initial warning:", saveResult.error.message);
       // Fallback: minimal columns only in case custom columns like user_id/avatar_url aren't defined
-      const minimalPayload = {
-        player_name,
+      const minimalPayload: any = {
+        player_name: cleanName,
         total_score: nextScore,
         wins: nextWins,
         matches_played: nextMatches,
@@ -246,15 +251,17 @@ app.post("/api/leaderboard", async (req, res) => {
         );
         const profWins = (prof?.wins ?? 0) + (wins ?? 0);
         const profMatches = (prof?.matches_played ?? 0) + (matches_played ?? 1);
+        const profCombo = Math.max(nextCombo, prof?.highest_combo ?? 0);
 
         await supabaseServer.from("profiles").upsert(
           {
             id: user_id,
-            username: player_name,
+            username: cleanName,
             avatar_url: finalAvatar || prof?.avatar_url || "",
             total_score: profScore,
             wins: profWins,
             matches_played: profMatches,
+            highest_combo: profCombo,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "id" }
@@ -264,7 +271,7 @@ app.post("/api/leaderboard", async (req, res) => {
       }
     }
 
-    return res.json({ success: true, data: saveResult.data || payload });
+    return res.json({ success: true, data: saveResult?.data || payload });
   } catch (err: any) {
     console.error("Leaderboard upsert exception:", err);
     return res.status(500).json({ success: false, error: err.message });
@@ -355,13 +362,16 @@ app.get("/api/match-history/:playerName", async (req, res) => {
 
   const { playerName } = req.params;
   const userId = req.query.userId as string | undefined;
+  const cleanName = playerName ? String(playerName).trim() : "";
 
   try {
     let query = supabaseServer.from("match_history").select("*");
-    if (userId) {
-      query = query.or(`user_id.eq.${userId},player_name.eq.${playerName},opponent_name.eq.${playerName}`);
-    } else {
-      query = query.or(`player_name.eq.${playerName},opponent_name.eq.${playerName}`);
+    if (userId && cleanName) {
+      query = query.or(`user_id.eq.${userId},player_name.ilike."${cleanName}",opponent_name.ilike."${cleanName}"`);
+    } else if (cleanName) {
+      query = query.or(`player_name.ilike."${cleanName}",opponent_name.ilike."${cleanName}"`);
+    } else if (userId) {
+      query = query.eq("user_id", userId);
     }
 
     const { data, error } = await query

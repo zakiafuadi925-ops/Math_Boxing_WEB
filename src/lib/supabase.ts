@@ -718,7 +718,7 @@ export const saveMatchScoreToLeaderboard = async ({
 
   // 1. Simpan ke Backend Server API (/api/leaderboard & /api/match-history)
   try {
-    fetch("/api/leaderboard", {
+    const lbPromise = fetch("/api/leaderboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -734,8 +734,9 @@ export const saveMatchScoreToLeaderboard = async ({
       }),
     }).catch((e) => console.warn("API /api/leaderboard post notice:", e));
 
+    let mhPromise: Promise<any> | null = null;
     if (opponentName) {
-      fetch("/api/match-history", {
+      mhPromise = fetch("/api/match-history", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -756,11 +757,13 @@ export const saveMatchScoreToLeaderboard = async ({
         }),
       }).catch((e) => console.warn("API /api/match-history post notice:", e));
     }
+
+    await Promise.allSettled([lbPromise, mhPromise].filter(Boolean));
   } catch (e) {
     console.warn("Backend saveMatchScore error:", e);
   }
 
-  // 2. Direct client-side Supabase write if available (for Vercel & Client SPA environments)
+  // 2. Direct client-side Supabase write fallback (for Vercel & Client SPA environments)
   if (isConfigured && supabase) {
     try {
       // Direct write to match_history
@@ -787,53 +790,77 @@ export const saveMatchScoreToLeaderboard = async ({
           if (error) console.warn("Client-side match_history write error:", error.message);
         });
 
-      // Direct write/upsert to leaderboard
-      supabase
-        .from("leaderboard")
-        .upsert(
-          {
-            player_name: name,
-            total_score: newLifetimeScore,
-            wins: matchResult === "win" ? 1 : 0,
-            matches_played: 1,
-            highest_combo: highestCombo,
-            avatar_url: avatar || "",
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "player_name" }
-        )
-        .then(({ error }) => {
-          if (error) {
-            // Fallback without onConflict if constraint name differs
-            supabase.from("leaderboard").insert({
-              player_name: name,
-              total_score: newLifetimeScore,
-              wins: matchResult === "win" ? 1 : 0,
-              matches_played: 1,
-              highest_combo: highestCombo,
-              avatar_url: avatar || "",
-              updated_at: new Date().toISOString(),
-            });
-          }
-        });
+      // Direct write/update to leaderboard with existence checking
+      let existingLb: any = null;
+      if (userId) {
+        const { data } = await supabase
+          .from("leaderboard")
+          .select("*")
+          .eq("user_id", userId)
+          .maybeSingle();
+        if (data) existingLb = data;
+      }
+      if (!existingLb && name) {
+        const { data } = await supabase
+          .from("leaderboard")
+          .select("*")
+          .ilike("player_name", name)
+          .maybeSingle();
+        if (data) existingLb = data;
+      }
+
+      const nextWins = (existingLb?.wins ?? 0) + (matchResult === "win" ? 1 : 0);
+      const nextMatches = (existingLb?.matches_played ?? 0) + 1;
+      const nextCombo = Math.max(highestCombo, existingLb?.highest_combo ?? 0);
+      const nextScore = Math.max(
+        newLifetimeScore,
+        (existingLb?.total_score ?? 0) + scoreEarned,
+        existingLb?.total_score ?? 0
+      );
+
+      const lbPayload: any = {
+        player_name: name,
+        total_score: nextScore,
+        wins: nextWins,
+        matches_played: nextMatches,
+        highest_combo: nextCombo,
+        updated_at: new Date().toISOString(),
+      };
+      if (userId) lbPayload.user_id = userId;
+      if (avatar) lbPayload.avatar_url = avatar;
+
+      if (existingLb && existingLb.id) {
+        await supabase.from("leaderboard").update(lbPayload).eq("id", existingLb.id);
+      } else {
+        await supabase.from("leaderboard").insert(lbPayload);
+      }
 
       // If user is logged in, also update profiles
       if (userId) {
-        supabase
+        const { data: prof } = await supabase
           .from("profiles")
-          .upsert(
-            {
-              id: userId,
-              username: name,
-              avatar_url: avatar || "",
-              total_score: newLifetimeScore,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "id" }
-          )
-          .then(({ error }) => {
-            if (error) console.warn("Client profiles upsert warning:", error.message);
-          });
+          .select("*")
+          .eq("id", userId)
+          .maybeSingle();
+
+        const profScore = Math.max(nextScore, (prof?.total_score ?? 0) + scoreEarned);
+        const profWins = (prof?.wins ?? 0) + (matchResult === "win" ? 1 : 0);
+        const profMatches = (prof?.matches_played ?? 0) + 1;
+        const profCombo = Math.max(nextCombo, prof?.highest_combo ?? 0);
+
+        await supabase.from("profiles").upsert(
+          {
+            id: userId,
+            username: name,
+            avatar_url: avatar || prof?.avatar_url || "",
+            total_score: profScore,
+            wins: profWins,
+            matches_played: profMatches,
+            highest_combo: profCombo,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
       }
     } catch (dbErr) {
       console.warn("Direct Supabase write error:", dbErr);
@@ -897,12 +924,13 @@ export const fetchPlayerMatchHistory = async (
   userId?: string,
 ): Promise<any[]> => {
   let remoteRecords: any[] = [];
+  const cleanName = playerName ? playerName.trim() : "";
 
   // 1. Coba ambil dari Backend API /api/match-history
   try {
     const url = userId
-      ? `/api/match-history/${encodeURIComponent(playerName)}?userId=${encodeURIComponent(userId)}`
-      : `/api/match-history/${encodeURIComponent(playerName)}`;
+      ? `/api/match-history/${encodeURIComponent(cleanName)}?userId=${encodeURIComponent(userId)}`
+      : `/api/match-history/${encodeURIComponent(cleanName)}`;
     const res = await fetch(url);
     if (res.ok) {
       const json = await res.json();
@@ -918,10 +946,12 @@ export const fetchPlayerMatchHistory = async (
   if (remoteRecords.length === 0 && isConfigured && supabase) {
     try {
       let query = supabase.from("match_history").select("*");
-      if (userId) {
-        query = query.or(`user_id.eq.${userId},player_name.eq.${playerName},opponent_name.eq.${playerName}`);
-      } else {
-        query = query.or(`player_name.eq.${playerName},opponent_name.eq.${playerName}`);
+      if (userId && cleanName) {
+        query = query.or(`user_id.eq.${userId},player_name.ilike."${cleanName}",opponent_name.ilike."${cleanName}"`);
+      } else if (cleanName) {
+        query = query.or(`player_name.ilike."${cleanName}",opponent_name.ilike."${cleanName}"`);
+      } else if (userId) {
+        query = query.eq("user_id", userId);
       }
       const { data } = await query.order("created_at", { ascending: false }).limit(30);
       if (data && data.length > 0) {
