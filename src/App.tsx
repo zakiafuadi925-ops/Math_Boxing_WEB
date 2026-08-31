@@ -240,6 +240,7 @@ export default function App() {
   // Screen Shake
   const [shakeClass, setShakeClass] = useState<string>("");
   const shakeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const savedMatchRef = useRef<string | null>(null);
 
   const triggerScreenShake = useCallback(
     (type: "light" | "heavy" | "combo") => {
@@ -331,6 +332,7 @@ export default function App() {
       setActiveDuration(matchDur);
       setTimeRemaining(matchDur);
       setFinishReason("time_up");
+      savedMatchRef.current = null;
 
       audio.playBell();
       setTotalAnswered(0);
@@ -619,6 +621,10 @@ export default function App() {
       // NOTE: We do NOT remove gameChannelRef.current here so players can still communicate
       // and trigger synchronized rematches from the GameOver screen.
 
+      const currentMatchId = `match_${Date.now()}_${p1.score}_${p2.score}`;
+      if (savedMatchRef.current === currentMatchId) return;
+      savedMatchRef.current = currentMatchId;
+
       let finalLifetime = lifetimeScore;
       if (p1.score > 0) {
         finalLifetime = lifetimeScore + p1.score;
@@ -630,7 +636,15 @@ export default function App() {
       }
 
       const matchResult: "win" | "loss" | "draw" =
-        p1.score > p2.score ? "win" : p1.score < p2.score ? "loss" : "draw";
+        finishReason === "ko_win"
+          ? "win"
+          : finishReason === "ko_loss"
+            ? "loss"
+            : p1.score > p2.score
+              ? "win"
+              : p1.score < p2.score
+                ? "loss"
+                : "draw";
 
       const matchAccuracy =
         totalAnswered > 0
@@ -661,7 +675,7 @@ export default function App() {
         console.error("Failed to save match history:", e);
       }
 
-      // ✅ Otomatis simpan skor & match history ke database Supabase / leaderboard
+      // ✅ Otomatis simpan & akumulasikan skor, match history, leaderboard, dan profile ke Supabase & Backend
       saveMatchScoreToLeaderboard({
         userId: currentUser?.uid || (currentUser as any)?.id,
         playerName: currentUser?.displayName || (currentUser as any)?.name || playerName || "Player 1",
@@ -671,8 +685,13 @@ export default function App() {
         newLifetimeScore: finalLifetime,
         matchResult,
         category,
+        mode,
         avatar: currentUser?.photoURL || (currentUser as any)?.avatar_url || "🥊",
         highestCombo,
+        accuracy: matchAccuracy,
+        totalAnswered,
+        correctCount,
+        wrongCount,
         roomId: roomCode || undefined,
       });
 
@@ -684,7 +703,7 @@ export default function App() {
         mode,
       });
     }
-  }, [stage]);
+  }, [stage, finishReason]);
 
   // AI Loop
   useEffect(() => {

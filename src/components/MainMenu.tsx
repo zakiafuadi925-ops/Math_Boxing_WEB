@@ -62,6 +62,7 @@ import {
   PlayerProfile,
   LeaderboardEntry,
   fetchGlobalLeaderboard,
+  fetchPlayerMatchHistory,
 } from "../lib/supabase";
 import { User, LogIn, ShieldCheck, Timer } from "lucide-react";
 
@@ -162,7 +163,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   const [leaderboardList, setLeaderboardList] = useState<LeaderboardEntry[]>([]);
   const [isLiveDatabase, setIsLiveDatabase] = useState(false);
 
-  useEffect(() => {
+  const loadHistoryData = useCallback(async () => {
     try {
       const raw = localStorage.getItem("mb_match_history");
       if (raw) {
@@ -173,7 +174,24 @@ export const MainMenu: React.FC<MainMenuProps> = ({
     } catch (e) {
       console.error("Failed to parse match history:", e);
     }
-  }, []);
+
+    const activeName =
+      currentUser?.displayName || currentUser?.name || playerName || "Player 1";
+    const activeUserId = currentUser?.uid || (currentUser as any)?.id;
+    try {
+      const unified = await fetchPlayerMatchHistory(activeName, activeUserId);
+      if (unified && unified.length > 0) {
+        setFullMatchHistory(unified);
+        setMatchHistory(unified.slice(0, 5));
+      }
+    } catch (e) {
+      console.warn("Sync remote match history warning:", e);
+    }
+  }, [currentUser, playerName]);
+
+  useEffect(() => {
+    loadHistoryData();
+  }, [loadHistoryData, activeTab]);
 
   // Fetch / Sync Global Leaderboard
   const loadLeaderboardData = useCallback(async () => {

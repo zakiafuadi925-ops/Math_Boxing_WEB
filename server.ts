@@ -285,6 +285,13 @@ app.post("/api/match-history", async (req, res) => {
     player_score,
     opponent_score,
     result,
+    accuracy,
+    category,
+    mode,
+    highest_combo,
+    total_answered,
+    correct_count,
+    wrong_count,
   } = req.body;
 
   if (!player_name || !opponent_name) {
@@ -299,6 +306,13 @@ app.post("/api/match-history", async (req, res) => {
       player_score: player_score || 0,
       opponent_score: opponent_score || 0,
       result: result || "win",
+      accuracy: accuracy !== undefined ? accuracy : 0,
+      category: category || "all",
+      mode: mode || "quick_match",
+      highest_combo: highest_combo || 0,
+      total_answered: total_answered || 0,
+      correct_count: correct_count || 0,
+      wrong_count: wrong_count || 0,
       created_at: new Date().toISOString(),
     };
     if (user_id) fullPayload.user_id = user_id;
@@ -311,7 +325,7 @@ app.post("/api/match-history", async (req, res) => {
 
     if (error) {
       console.warn("Supabase match_history standard insert failed, trying fallback:", error.message);
-      // Fallback: omit room_id and user_id if table doesn't have those columns
+      // Fallback: insert minimal schema if extended columns don't exist yet
       const fallbackPayload: any = {
         player_name,
         opponent_name,
@@ -340,14 +354,19 @@ app.get("/api/match-history/:playerName", async (req, res) => {
   }
 
   const { playerName } = req.params;
+  const userId = req.query.userId as string | undefined;
 
   try {
-    const { data, error } = await supabaseServer
-      .from("match_history")
-      .select("*")
-      .or(`player_name.eq.${playerName},opponent_name.eq.${playerName}`)
+    let query = supabaseServer.from("match_history").select("*");
+    if (userId) {
+      query = query.or(`user_id.eq.${userId},player_name.eq.${playerName},opponent_name.eq.${playerName}`);
+    } else {
+      query = query.or(`player_name.eq.${playerName},opponent_name.eq.${playerName}`);
+    }
+
+    const { data, error } = await query
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(30);
 
     if (error) {
       console.warn("Supabase fetch match history error:", error.message);

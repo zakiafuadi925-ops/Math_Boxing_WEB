@@ -317,18 +317,41 @@ export const getCurrentUserProfile = async (): Promise<PlayerProfile | null> => 
     const name = user.user_metadata?.full_name || user.email?.split("@")[0] || "Petinju";
     const avatar = user.user_metadata?.avatar_url || "";
 
-    // Sync data profil ke public.profiles
+    let highScore = 0;
+    let wins = 0;
+    let matchesPlayed = 0;
+    let highestCombo = 0;
+
+    // Ambil data profil dari public.profiles
     if (isConfigured) {
       try {
-        await supabase.from("profiles").upsert(
-          {
-            id: user.id,
-            username: name,
-            avatar_url: avatar,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (prof) {
+          highScore = prof.total_score || 0;
+          wins = prof.wins || 0;
+          matchesPlayed = prof.matches_played || 0;
+          highestCombo = prof.highest_combo || 0;
+        } else {
+          // Inisialisasi awal profil jika belum ada
+          await supabase.from("profiles").upsert(
+            {
+              id: user.id,
+              username: name,
+              avatar_url: avatar,
+              total_score: 0,
+              wins: 0,
+              matches_played: 0,
+              highest_combo: 0,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "id" }
+          );
+        }
       } catch (err) {
         console.warn("Profiles sync info:", err);
       }
@@ -342,7 +365,7 @@ export const getCurrentUserProfile = async (): Promise<PlayerProfile | null> => 
       email: user.email,
       avatar_url: avatar,
       photoURL: avatar,
-      high_score: 0,
+      high_score: highScore,
     };
   } catch (e) {
     console.warn("Failed to get current user profile:", e);
@@ -664,8 +687,13 @@ export const saveMatchScoreToLeaderboard = async ({
   newLifetimeScore,
   matchResult,
   category,
+  mode = "quick_match",
   avatar,
   highestCombo = 0,
+  accuracy = 0,
+  totalAnswered = 0,
+  correctCount = 0,
+  wrongCount = 0,
   roomId,
 }: {
   userId?: string;
@@ -676,8 +704,13 @@ export const saveMatchScoreToLeaderboard = async ({
   newLifetimeScore: number;
   matchResult: "win" | "loss" | "draw";
   category: string;
+  mode?: string;
   avatar?: string;
   highestCombo?: number;
+  accuracy?: number;
+  totalAnswered?: number;
+  correctCount?: number;
+  wrongCount?: number;
   roomId?: string;
 }) => {
   const name = playerName.trim() || "Pemain Kamu";
@@ -713,6 +746,13 @@ export const saveMatchScoreToLeaderboard = async ({
           player_score: scoreEarned,
           opponent_score: opponentScore,
           result: matchResult,
+          accuracy,
+          category,
+          mode,
+          highest_combo: highestCombo,
+          total_answered: totalAnswered,
+          correct_count: correctCount,
+          wrong_count: wrongCount,
         }),
       }).catch((e) => console.warn("API /api/match-history post notice:", e));
     }
@@ -728,11 +768,19 @@ export const saveMatchScoreToLeaderboard = async ({
         .from("match_history")
         .insert({
           room_id: roomId || `room_${Date.now()}`,
+          user_id: userId,
           player_name: name,
           opponent_name: opponentName || "AI Opponent",
           player_score: scoreEarned,
           opponent_score: opponentScore,
           result: matchResult,
+          accuracy,
+          category,
+          mode,
+          highest_combo: highestCombo,
+          total_answered: totalAnswered,
+          correct_count: correctCount,
+          wrong_count: wrongCount,
           created_at: new Date().toISOString(),
         })
         .then(({ error }) => {
@@ -792,7 +840,7 @@ export const saveMatchScoreToLeaderboard = async ({
     }
   }
 
-  // 2. Simpan juga ke cache lokal
+  // 3. Simpan juga ke cache lokal
   try {
     const raw = localStorage.getItem(LOCAL_LEADERBOARD_KEY);
     let list: LeaderboardEntry[] = raw ? JSON.parse(raw) : [];
@@ -841,5 +889,87 @@ export const saveMatchScoreToLeaderboard = async ({
   } catch (e) {
     console.error("Failed to save to local leaderboard storage:", e);
   }
+};
+
+// Helper untuk mengambil Riwayat Pertandingan (History)
+export const fetchPlayerMatchHistory = async (
+  playerName: string,
+  userId?: string,
+): Promise<any[]> => {
+  let remoteRecords: any[] = [];
+
+  // 1. Coba ambil dari Backend API /api/match-history
+  try {
+    const url = userId
+      ? `/api/match-history/${encodeURIComponent(playerName)}?userId=${encodeURIComponent(userId)}`
+      : `/api/match-history/${encodeURIComponent(playerName)}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+        remoteRecords = json.data;
+      }
+    }
+  } catch (e) {
+    console.warn("Backend match history fetch notice:", e);
+  }
+
+  // 2. Jika Backend kosong dan Supabase client aktif, coba direct fetch
+  if (remoteRecords.length === 0 && isConfigured && supabase) {
+    try {
+      let query = supabase.from("match_history").select("*");
+      if (userId) {
+        query = query.or(`user_id.eq.${userId},player_name.eq.${playerName},opponent_name.eq.${playerName}`);
+      } else {
+        query = query.or(`player_name.eq.${playerName},opponent_name.eq.${playerName}`);
+      }
+      const { data } = await query.order("created_at", { ascending: false }).limit(30);
+      if (data && data.length > 0) {
+        remoteRecords = data;
+      }
+    } catch (e) {
+      console.warn("Direct Supabase history fetch notice:", e);
+    }
+  }
+
+  // 3. Ambil dari local storage
+  let localRecords: any[] = [];
+  try {
+    const raw = localStorage.getItem("mb_match_history");
+    if (raw) localRecords = JSON.parse(raw);
+  } catch (e) {}
+
+  // 4. Merge dan format data
+  if (remoteRecords.length > 0) {
+    const formattedRemote = remoteRecords.map((r) => ({
+      id: r.id ? `match_${r.id}` : r.room_id || `match_${Date.now()}`,
+      timestamp: r.created_at ? new Date(r.created_at).getTime() : Date.now(),
+      opponentName: r.opponent_name || "Lawan",
+      p1Score: r.player_score || 0,
+      p2Score: r.opponent_score || 0,
+      result: r.result || "win",
+      category: r.category || "all",
+      mode: r.mode || "quick_match",
+      accuracy: r.accuracy || 0,
+      totalAnswered: r.total_answered || 0,
+      correctCount: r.correct_count || 0,
+      wrongCount: r.wrong_count || 0,
+    }));
+
+    // Gabungkan & simpan ke cache lokal
+    const merged = [...formattedRemote];
+    localRecords.forEach((loc) => {
+      if (!merged.some((m) => Math.abs(m.timestamp - loc.timestamp) < 5000)) {
+        merged.push(loc);
+      }
+    });
+    merged.sort((a, b) => b.timestamp - a.timestamp);
+    try {
+      localStorage.setItem("mb_match_history", JSON.stringify(merged.slice(0, 50)));
+    } catch {}
+    return merged;
+  }
+
+  return localRecords;
 };
 
