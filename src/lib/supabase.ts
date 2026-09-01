@@ -887,6 +887,23 @@ export const saveMatchScoreToLeaderboard = async ({
           { onConflict: "id" }
         );
       }
+
+      // If room code or ID is provided, also update public.rooms status to 'completed'
+      if (cleanRoomId) {
+        try {
+          const roomPayload: any = {
+            id: cleanRoomId.startsWith("room_") ? cleanRoomId : `room_${cleanRoomId}`,
+            room_code: cleanRoomId.toUpperCase(),
+            status: "completed",
+          };
+          if (matchResult === "win" && validUid) {
+            roomPayload.winner_id = validUid;
+          }
+          await supabase.from("rooms").upsert(roomPayload, { onConflict: "room_code" });
+        } catch (rErr) {
+          console.warn("Direct rooms completion update notice:", rErr);
+        }
+      }
     } catch (dbErr) {
       console.warn("Direct Supabase write error:", dbErr);
     }
@@ -1027,4 +1044,97 @@ export const fetchPlayerMatchHistory = async (
 
   return localRecords;
 };
+
+// Helper Sinkronisasi Kamar / Room (public.rooms)
+export const syncRoomState = async ({
+  roomCode,
+  status = "waiting",
+  hostId,
+  guestId,
+  winnerId,
+}: {
+  roomCode: string;
+  status?: "waiting" | "in_game" | "completed" | "abandoned";
+  hostId?: string;
+  guestId?: string;
+  winnerId?: string;
+}): Promise<boolean> => {
+  const cleanCode = String(roomCode).trim().toUpperCase();
+  if (!cleanCode) return false;
+
+  const validHost = isValidUuid(hostId) ? hostId?.trim() : undefined;
+  const validGuest = isValidUuid(guestId) ? guestId?.trim() : undefined;
+  const validWinner = isValidUuid(winnerId) ? winnerId?.trim() : undefined;
+
+  // 1. Kirim ke Backend API (/api/rooms)
+  try {
+    await fetch("/api/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: `room_${cleanCode}`,
+        room_code: cleanCode,
+        status,
+        host_id: validHost,
+        guest_id: validGuest,
+        winner_id: validWinner,
+      }),
+    });
+  } catch (e) {
+    console.warn("Backend syncRoomState notice:", e);
+  }
+
+  // 2. Direct Supabase Client fallback
+  if (isConfigured && supabase) {
+    try {
+      const payload: any = {
+        id: `room_${cleanCode}`,
+        room_code: cleanCode,
+        status,
+        created_at: new Date().toISOString(),
+      };
+      if (validHost) payload.host_id = validHost;
+      if (validGuest) payload.guest_id = validGuest;
+      if (validWinner) payload.winner_id = validWinner;
+
+      await supabase.from("rooms").upsert(payload, { onConflict: "room_code" });
+      return true;
+    } catch (e) {
+      console.warn("Direct Supabase rooms sync error:", e);
+    }
+  }
+
+  return true;
+};
+
+// Helper Mengambil Daftar Kamar Aktif (public.rooms)
+export const fetchActiveRooms = async (): Promise<any[]> => {
+  try {
+    const res = await fetch("/api/rooms");
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.rooms)) {
+        return json.rooms;
+      }
+    }
+  } catch (e) {
+    console.warn("Fetch active rooms backend notice:", e);
+  }
+
+  if (isConfigured && supabase) {
+    try {
+      const { data } = await supabase
+        .from("rooms")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      return data || [];
+    } catch (e) {
+      console.warn("Direct Supabase fetch rooms notice:", e);
+    }
+  }
+
+  return [];
+};
+
 

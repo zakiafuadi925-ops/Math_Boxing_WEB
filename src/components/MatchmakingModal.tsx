@@ -13,7 +13,7 @@ import {
   Shield,
 } from "lucide-react";
 import { GameMode, GameDuration, QuestionCategory, MathQuestion } from "../types";
-import { supabase } from "../lib/supabase";
+import { supabase, syncRoomState } from "../lib/supabase";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { audio } from "../utils/audio";
 import { MathGenerator } from "../utils/mathGenerator";
@@ -24,6 +24,7 @@ interface MatchmakingModalProps {
   duration?: GameDuration;
   category?: QuestionCategory;
   playerName?: string;
+  userId?: string;
   selectedSkinId?: string;
   onCancel: () => void;
   onMatchFound: (roomData?: {
@@ -43,6 +44,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   duration = 300,
   category = "all",
   playerName = "Pemain 1",
+  userId,
   selectedSkinId,
   onCancel,
   onMatchFound,
@@ -112,14 +114,11 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
 
     // Sync private room creation to backend API & Supabase
     if (mode === "private_room" && normalizedRoomCode) {
-      fetch("/api/rooms", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          room_code: normalizedRoomCode,
-          status: "waiting",
-        }),
-      }).catch(() => {});
+      syncRoomState({
+        roomCode: normalizedRoomCode,
+        status: "waiting",
+        hostId: userId,
+      });
     }
 
     // Helper untuk konfirmasi pertandingan dan transisi kedua pemain
@@ -130,14 +129,12 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
       audio.playBell();
 
       if (mode === "private_room" && normalizedRoomCode) {
-        fetch("/api/rooms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            room_code: normalizedRoomCode,
-            status: "in_game",
-          }),
-        }).catch(() => {});
+        syncRoomState({
+          roomCode: normalizedRoomCode,
+          status: "in_game",
+          hostId: payload.hostId === myId ? userId : undefined,
+          guestId: payload.guestId === myId ? userId : undefined,
+        });
       }
 
       const isHost = payload.hostId === myId;

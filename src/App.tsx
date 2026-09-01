@@ -1151,6 +1151,7 @@ export default function App() {
           category={category}
           duration={selectedDuration}
           playerName={playerName}
+          userId={currentUser?.uid || (currentUser as any)?.id}
           selectedSkinId={selectedSkinId}
           onCancel={() => setStage("main_menu")}
           onMatchFound={(roomData) => {
