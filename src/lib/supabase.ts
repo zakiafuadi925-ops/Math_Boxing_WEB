@@ -1,9 +1,23 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { calculateBadge, getRankTierByScore } from "../utils/ranks";
 
-// Client-side fallback configuration
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
-const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
+// UUID validation helper
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+export function isValidUuid(val?: string | null): boolean {
+  return typeof val === "string" && UUID_REGEX.test(val.trim());
+}
+
+// Client-side fallback configuration supporting multiple env prefixes
+const supabaseUrl =
+  (import.meta as any).env?.VITE_SUPABASE_URL ||
+  (import.meta as any).env?.SUPABASE_URL ||
+  (typeof process !== "undefined" && (process as any).env?.SUPABASE_URL) ||
+  "";
+const supabaseAnonKey =
+  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+  (import.meta as any).env?.SUPABASE_ANON_KEY ||
+  (typeof process !== "undefined" && (process as any).env?.SUPABASE_ANON_KEY) ||
+  "";
 
 const isConfigured = Boolean(
   supabaseUrl &&
@@ -715,14 +729,28 @@ export const saveMatchScoreToLeaderboard = async ({
 }) => {
   const name = playerName.trim() || "Pemain Kamu";
   const badge = calculateBadge(newLifetimeScore);
+  const validUid = isValidUuid(userId) ? userId?.trim() : undefined;
 
   // 1. Simpan ke Backend Server API (/api/leaderboard & /api/match-history)
   try {
+    let authHeader = "";
+    if (isConfigured && supabase) {
+      try {
+        const { data: sessData } = await supabase.auth.getSession();
+        if (sessData?.session?.access_token) {
+          authHeader = `Bearer ${sessData.session.access_token}`;
+        }
+      } catch {}
+    }
+
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (authHeader) headers["Authorization"] = authHeader;
+
     const lbPromise = fetch("/api/leaderboard", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({
-        user_id: userId,
+        user_id: validUid,
         player_name: name,
         total_score: newLifetimeScore,
         score_increment: scoreEarned,
@@ -738,10 +766,10 @@ export const saveMatchScoreToLeaderboard = async ({
     if (opponentName) {
       mhPromise = fetch("/api/match-history", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
-          room_id: roomId || `room_${Date.now()}`,
-          user_id: userId,
+          room_id: roomId || `match_${Date.now()}`,
+          user_id: validUid,
           player_name: name,
           opponent_name: opponentName,
           player_score: scoreEarned,
@@ -766,97 +794,94 @@ export const saveMatchScoreToLeaderboard = async ({
   // 2. Direct client-side Supabase write fallback (for Vercel & Client SPA environments)
   if (isConfigured && supabase) {
     try {
-      // Direct write to match_history
+      // Direct write to match_history (columns: room_id, player_name, opponent_name, player_score, opponent_score, result, created_at, user_id)
+      const cleanName = name.substring(0, 50);
+      const cleanOpponent = (opponentName || "AI Opponent").substring(0, 50);
+      const cleanRoomId = roomId ? String(roomId).substring(0, 32) : null;
+      const cleanResult = String(matchResult || "win").substring(0, 10);
+
+      const mhPayload: any = {
+        player_name: cleanName,
+        opponent_name: cleanOpponent,
+        player_score: scoreEarned,
+        opponent_score: opponentScore,
+        result: cleanResult,
+        created_at: new Date().toISOString(),
+      };
+      if (cleanRoomId) mhPayload.room_id = cleanRoomId;
+      if (validUid) mhPayload.user_id = validUid;
+
       supabase
         .from("match_history")
-        .insert({
-          room_id: roomId || `room_${Date.now()}`,
-          user_id: userId,
-          player_name: name,
-          opponent_name: opponentName || "AI Opponent",
-          player_score: scoreEarned,
-          opponent_score: opponentScore,
-          result: matchResult,
-          accuracy,
-          category,
-          mode,
-          highest_combo: highestCombo,
-          total_answered: totalAnswered,
-          correct_count: correctCount,
-          wrong_count: wrongCount,
-          created_at: new Date().toISOString(),
-        })
+        .insert(mhPayload)
         .then(({ error }) => {
           if (error) console.warn("Client-side match_history write error:", error.message);
         });
 
-      // Direct write/update to leaderboard with existence checking
+      // Direct write/update to leaderboard (columns: player_name, total_score, wins, matches_played, highest_combo, updated_at, user_id)
       let existingLb: any = null;
-      if (userId) {
+      if (validUid) {
         const { data } = await supabase
           .from("leaderboard")
           .select("*")
-          .eq("user_id", userId)
+          .eq("user_id", validUid)
           .maybeSingle();
         if (data) existingLb = data;
       }
-      if (!existingLb && name) {
+      if (!existingLb && cleanName) {
         const { data } = await supabase
           .from("leaderboard")
           .select("*")
-          .ilike("player_name", name)
+          .ilike("player_name", cleanName)
           .maybeSingle();
         if (data) existingLb = data;
       }
 
-      const nextWins = (existingLb?.wins ?? 0) + (matchResult === "win" ? 1 : 0);
-      const nextMatches = (existingLb?.matches_played ?? 0) + 1;
-      const nextCombo = Math.max(highestCombo, existingLb?.highest_combo ?? 0);
+      const nextWins = Number(existingLb?.wins ?? 0) + (matchResult === "win" ? 1 : 0);
+      const nextMatches = Number(existingLb?.matches_played ?? 0) + 1;
+      const nextCombo = Math.max(highestCombo, Number(existingLb?.highest_combo ?? 0));
       const nextScore = Math.max(
         newLifetimeScore,
-        (existingLb?.total_score ?? 0) + scoreEarned,
-        existingLb?.total_score ?? 0
+        Number(existingLb?.total_score ?? 0) + scoreEarned,
+        Number(existingLb?.total_score ?? 0)
       );
 
       const lbPayload: any = {
-        player_name: name,
+        player_name: cleanName,
         total_score: nextScore,
         wins: nextWins,
         matches_played: nextMatches,
         highest_combo: nextCombo,
         updated_at: new Date().toISOString(),
       };
-      if (userId) lbPayload.user_id = userId;
-      if (avatar) lbPayload.avatar_url = avatar;
+      if (validUid) lbPayload.user_id = validUid;
 
       if (existingLb && existingLb.id) {
         await supabase.from("leaderboard").update(lbPayload).eq("id", existingLb.id);
       } else {
-        await supabase.from("leaderboard").insert(lbPayload);
+        await supabase.from("leaderboard").upsert(lbPayload, { onConflict: "player_name" });
       }
 
-      // If user is logged in, also update profiles
-      if (userId) {
+      // If user is logged in with valid UUID, also update profiles (columns: id, username, avatar_url, total_score, wins, matches_played, updated_at)
+      if (validUid) {
         const { data: prof } = await supabase
           .from("profiles")
           .select("*")
-          .eq("id", userId)
+          .eq("id", validUid)
           .maybeSingle();
 
-        const profScore = Math.max(nextScore, (prof?.total_score ?? 0) + scoreEarned);
-        const profWins = (prof?.wins ?? 0) + (matchResult === "win" ? 1 : 0);
-        const profMatches = (prof?.matches_played ?? 0) + 1;
-        const profCombo = Math.max(nextCombo, prof?.highest_combo ?? 0);
+        const profScore = Math.max(nextScore, Number(prof?.total_score ?? 0) + scoreEarned);
+        const profWins = Number(prof?.wins ?? 0) + (matchResult === "win" ? 1 : 0);
+        const profMatches = Number(prof?.matches_played ?? 0) + 1;
 
         await supabase.from("profiles").upsert(
           {
-            id: userId,
-            username: name,
-            avatar_url: avatar || prof?.avatar_url || "",
+            id: validUid,
+            username: cleanName,
+            avatar_url: avatar || prof?.avatar_url || null,
             total_score: profScore,
             wins: profWins,
             matches_played: profMatches,
-            highest_combo: profCombo,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "id" }

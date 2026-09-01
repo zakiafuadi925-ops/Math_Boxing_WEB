@@ -13,27 +13,91 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
+// UUID validation regex to prevent Postgres syntax errors
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function isValidUuid(val?: string | null): boolean {
+  return typeof val === "string" && UUID_REGEX.test(val.trim());
+}
+
 // Server-side private Supabase configuration
-const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseUrl =
+  process.env.SUPABASE_URL ||
+  process.env.VITE_SUPABASE_URL ||
+  "";
 const supabaseKey =
-  process.env.SUPABASE_ANON_KEY ||
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.VITE_SUPABASE_ANON_KEY;
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  "";
 
 let supabaseServer: SupabaseClient | null = null;
 if (supabaseUrl && supabaseKey && supabaseUrl.startsWith("http")) {
   try {
-    supabaseServer = createClient(supabaseUrl, supabaseKey);
-    console.log("✅ Supabase Server connected to:", supabaseUrl);
+    supabaseServer = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+    console.log("✅ Supabase Server initialized for:", supabaseUrl);
   } catch (err) {
     console.warn("Failed to initialize Supabase server client:", err);
   }
 }
 
+// Diagnostic API to check Supabase connection & table health
+app.get("/api/db-diagnostics", async (req, res) => {
+  if (!supabaseServer) {
+    return res.json({
+      status: "unconfigured",
+      supabaseUrl: supabaseUrl ? `${supabaseUrl.substring(0, 15)}...` : "none",
+      hasKey: Boolean(supabaseKey),
+    });
+  }
+
+  const results: Record<string, any> = {};
+
+  try {
+    const { data: lb, error: lbErr } = await supabaseServer.from("leaderboard").select("*").limit(5);
+    results.leaderboard = { count: lb?.length ?? 0, sample: lb, error: lbErr?.message || null };
+  } catch (e: any) {
+    results.leaderboard = { error: e.message };
+  }
+
+  try {
+    const { data: prof, error: profErr } = await supabaseServer.from("profiles").select("*").limit(5);
+    results.profiles = { count: prof?.length ?? 0, sample: prof, error: profErr?.message || null };
+  } catch (e: any) {
+    results.profiles = { error: e.message };
+  }
+
+  try {
+    const { data: mh, error: mhErr } = await supabaseServer.from("match_history").select("*").limit(5);
+    results.match_history = { count: mh?.length ?? 0, sample: mh, error: mhErr?.message || null };
+  } catch (e: any) {
+    results.match_history = { error: e.message };
+  }
+
+  try {
+    const { data: rm, error: rmErr } = await supabaseServer.from("rooms").select("*").limit(5);
+    results.rooms = { count: rm?.length ?? 0, sample: rm, error: rmErr?.message || null };
+  } catch (e: any) {
+    results.rooms = { error: e.message };
+  }
+
+  return res.json({
+    status: "ok",
+    url: supabaseUrl,
+    tables: results,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Check backend database configuration
 app.get("/api/config", (req, res) => {
   res.json({
     configured: Boolean(supabaseServer),
+    url: supabaseUrl ? true : false,
     timestamp: new Date().toISOString(),
   });
 });
@@ -52,7 +116,7 @@ app.get("/api/leaderboard", async (req, res) => {
       .order("total_score", { ascending: false })
       .limit(100);
 
-    // 2. Also fetch entries from profiles to ensure all players are included with avatars
+    // 2. Also fetch entries from profiles
     const { data: profData } = await supabaseServer
       .from("profiles")
       .select("*")
@@ -70,27 +134,27 @@ app.get("/api/leaderboard", async (req, res) => {
           id: p.id,
           user_id: p.id,
           player_name: p.username || p.name || "Petinju",
-          total_score: p.total_score || 0,
-          wins: p.wins || 0,
-          matches_played: p.matches_played || 0,
-          highest_combo: p.highest_combo || 0,
+          total_score: Number(p.total_score) || 0,
+          wins: Number(p.wins) || 0,
+          matches_played: Number(p.matches_played) || 0,
+          highest_combo: Number(p.highest_combo) || 0,
           avatar_url: p.avatar_url || p.avatar || "",
           updated_at: p.updated_at || new Date().toISOString(),
         });
       }
     }
 
-    // Merge/override with leaderboard data (taking higher score/matches)
+    // Merge/override with leaderboard data
     if (Array.isArray(lbData)) {
       for (const lb of lbData) {
         const key = (lb.player_name || lb.name || lb.id || "").trim().toLowerCase();
         if (!key) continue;
         const existing = mergedMap.get(key);
         if (existing) {
-          existing.total_score = Math.max(existing.total_score, lb.total_score || 0);
-          existing.wins = Math.max(existing.wins, lb.wins || 0);
-          existing.matches_played = Math.max(existing.matches_played, lb.matches_played || 0);
-          existing.highest_combo = Math.max(existing.highest_combo || 0, lb.highest_combo || 0);
+          existing.total_score = Math.max(existing.total_score, Number(lb.total_score) || 0);
+          existing.wins = Math.max(existing.wins, Number(lb.wins) || 0);
+          existing.matches_played = Math.max(existing.matches_played, Number(lb.matches_played) || 0);
+          existing.highest_combo = Math.max(existing.highest_combo || 0, Number(lb.highest_combo) || 0);
           if (!existing.avatar_url && (lb.avatar_url || lb.avatar)) {
             existing.avatar_url = lb.avatar_url || lb.avatar;
           }
@@ -99,10 +163,10 @@ app.get("/api/leaderboard", async (req, res) => {
             id: lb.id,
             user_id: lb.user_id,
             player_name: lb.player_name || lb.name || "Petinju",
-            total_score: lb.total_score || 0,
-            wins: lb.wins || 0,
-            matches_played: lb.matches_played || 0,
-            highest_combo: lb.highest_combo || 0,
+            total_score: Number(lb.total_score) || 0,
+            wins: Number(lb.wins) || 0,
+            matches_played: Number(lb.matches_played) || 0,
+            highest_combo: Number(lb.highest_combo) || 0,
             avatar_url: lb.avatar_url || lb.avatar || "",
             updated_at: lb.updated_at || new Date().toISOString(),
           });
@@ -121,7 +185,7 @@ app.get("/api/leaderboard", async (req, res) => {
   }
 });
 
-// POST /api/leaderboard
+// POST /api/leaderboard - Simpan & Akumulasikan Skor Player
 app.post("/api/leaderboard", async (req, res) => {
   if (!supabaseServer) {
     return res.status(200).json({
@@ -139,24 +203,33 @@ app.post("/api/leaderboard", async (req, res) => {
     wins,
     matches_played,
     highest_combo,
-    avatar,
-    avatar_url,
   } = req.body;
 
   if (!player_name) {
     return res.status(400).json({ success: false, error: "player_name is required" });
   }
 
-  const cleanName = String(player_name).trim();
+  // Schema public.leaderboard:
+  // - id: uuid (gen_random_uuid)
+  // - player_name: varchar(50) unique
+  // - total_score: integer
+  // - wins: integer
+  // - matches_played: integer
+  // - highest_combo: integer
+  // - updated_at: timestamp with time zone
+  // - user_id: uuid (foreign key auth.users.id)
+
+  const cleanName = String(player_name).trim().substring(0, 50);
+  const validUid = isValidUuid(user_id) ? user_id.trim() : null;
 
   try {
-    // 1. Search for existing record by user_id or player_name (safely without space formatting errors)
+    // 1. Search for existing record by user_id or player_name (unique constraint)
     let existing: any = null;
-    if (user_id) {
+    if (validUid) {
       const { data: byUser } = await supabaseServer
         .from("leaderboard")
         .select("*")
-        .eq("user_id", user_id)
+        .eq("user_id", validUid)
         .maybeSingle();
       if (byUser) existing = byUser;
     }
@@ -170,16 +243,16 @@ app.post("/api/leaderboard", async (req, res) => {
       if (byName) existing = byName;
     }
 
-    const nextWins = (existing?.wins ?? 0) + (wins ?? 0);
-    const nextMatches = (existing?.matches_played ?? 0) + (matches_played ?? 1);
-    const nextCombo = Math.max(highest_combo ?? 0, existing?.highest_combo ?? 0);
+    const nextWins = Number(existing?.wins ?? 0) + Number(wins ?? 0);
+    const nextMatches = Number(existing?.matches_played ?? 0) + Number(matches_played ?? 1);
+    const nextCombo = Math.max(Number(highest_combo ?? 0), Number(existing?.highest_combo ?? 0));
     const nextScore = Math.max(
-      total_score ?? 0,
-      (existing?.total_score ?? 0) + (score_increment ?? 0),
-      existing?.total_score ?? 0
+      Number(total_score ?? 0),
+      Number(existing?.total_score ?? 0) + Number(score_increment ?? 0),
+      Number(existing?.total_score ?? 0)
     );
-    const finalAvatar = avatar_url || avatar || existing?.avatar_url || existing?.avatar || "";
 
+    // Payload exactly matching public.leaderboard columns
     const payload: any = {
       player_name: cleanName,
       total_score: nextScore,
@@ -188,12 +261,12 @@ app.post("/api/leaderboard", async (req, res) => {
       highest_combo: nextCombo,
       updated_at: new Date().toISOString(),
     };
-    if (user_id) payload.user_id = user_id;
-    if (finalAvatar) payload.avatar_url = finalAvatar;
+    if (validUid) {
+      payload.user_id = validUid;
+    }
 
-    let saveResult: any;
+    let saveResult: any = null;
     if (existing && existing.id) {
-      // Update by primary key id (avoids constraint mismatches)
       saveResult = await supabaseServer
         .from("leaderboard")
         .update(payload)
@@ -201,84 +274,66 @@ app.post("/api/leaderboard", async (req, res) => {
         .select()
         .maybeSingle();
     } else {
-      // Insert new record
+      // Upsert using player_name unique constraint
       saveResult = await supabaseServer
         .from("leaderboard")
-        .insert(payload)
+        .upsert(payload, { onConflict: "player_name" })
         .select()
         .maybeSingle();
-
-      // If insert hits a conflict, try upsert
-      if (saveResult.error) {
-        saveResult = await supabaseServer
-          .from("leaderboard")
-          .upsert(payload)
-          .select()
-          .maybeSingle();
-      }
     }
 
     if (saveResult?.error) {
-      console.warn("Leaderboard save initial warning:", saveResult.error.message);
-      // Fallback: minimal columns only in case custom columns like user_id/avatar_url aren't defined
-      const minimalPayload: any = {
-        player_name: cleanName,
-        total_score: nextScore,
-        wins: nextWins,
-        matches_played: nextMatches,
-        highest_combo: nextCombo,
-        updated_at: new Date().toISOString(),
-      };
-      if (existing?.id) {
-        await supabaseServer.from("leaderboard").update(minimalPayload).eq("id", existing.id);
-      } else {
-        await supabaseServer.from("leaderboard").insert(minimalPayload);
-      }
+      console.warn("Leaderboard save warning:", saveResult.error.message);
     }
 
-    // 2. Also update profiles table so profile XP stays 100% in sync
-    if (user_id) {
+    // 2. Also update profiles table if user_id is provided
+    // Schema public.profiles:
+    // - id: uuid (primary key, foreign key auth.users.id)
+    // - username: text
+    // - avatar_url: text
+    // - total_score: integer
+    // - wins: integer
+    // - matches_played: integer
+    // - updated_at: timestamp with time zone
+    if (validUid) {
       try {
         const { data: prof } = await supabaseServer
           .from("profiles")
           .select("*")
-          .eq("id", user_id)
+          .eq("id", validUid)
           .maybeSingle();
 
         const profScore = Math.max(
           nextScore,
-          (prof?.total_score ?? 0) + (score_increment ?? 0)
+          Number(prof?.total_score ?? 0) + Number(score_increment ?? 0)
         );
-        const profWins = (prof?.wins ?? 0) + (wins ?? 0);
-        const profMatches = (prof?.matches_played ?? 0) + (matches_played ?? 1);
-        const profCombo = Math.max(nextCombo, prof?.highest_combo ?? 0);
+        const profWins = Number(prof?.wins ?? 0) + Number(wins ?? 0);
+        const profMatches = Number(prof?.matches_played ?? 0) + Number(matches_played ?? 1);
 
         await supabaseServer.from("profiles").upsert(
           {
-            id: user_id,
+            id: validUid,
             username: cleanName,
-            avatar_url: finalAvatar || prof?.avatar_url || "",
             total_score: profScore,
             wins: profWins,
             matches_played: profMatches,
-            highest_combo: profCombo,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "id" }
         );
-      } catch (profErr) {
-        console.warn("Profile sync in post leaderboard notice:", profErr);
+      } catch (profErr: any) {
+        console.warn("Profiles sync notice:", profErr?.message);
       }
     }
 
-    return res.json({ success: true, data: saveResult?.data || payload });
+    return res.json({ success: true, isLiveDb: true, data: saveResult?.data || payload });
   } catch (err: any) {
     console.error("Leaderboard upsert exception:", err);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// POST /api/match-history
+// POST /api/match-history - Simpan Rekam Jejak Pertandingan ke Database Supabase
 app.post("/api/match-history", async (req, res) => {
   if (!supabaseServer) {
     return res.status(200).json({ success: true, isLiveDb: false });
@@ -292,62 +347,53 @@ app.post("/api/match-history", async (req, res) => {
     player_score,
     opponent_score,
     result,
-    accuracy,
-    category,
-    mode,
-    highest_combo,
-    total_answered,
-    correct_count,
-    wrong_count,
   } = req.body;
 
   if (!player_name || !opponent_name) {
     return res.status(400).json({ success: false, error: "Missing required match parameters" });
   }
 
+  // Schema public.match_history:
+  // - id: uuid default gen_random_uuid()
+  // - room_id: varchar(32)
+  // - player_name: varchar(50)
+  // - opponent_name: varchar(50)
+  // - player_score: integer default 0
+  // - opponent_score: integer default 0
+  // - result: varchar(10)
+  // - created_at: timestamp with time zone default now()
+  // - user_id: uuid references auth.users(id)
+
+  const cleanName = String(player_name).trim().substring(0, 50);
+  const cleanOpponent = String(opponent_name).trim().substring(0, 50);
+  const cleanRoomId = room_id ? String(room_id).trim().substring(0, 32) : null;
+  const cleanResult = String(result || "win").trim().substring(0, 10);
+  const validUid = isValidUuid(user_id) ? user_id.trim() : null;
+
   try {
-    const fullPayload: any = {
-      room_id: room_id || `match_${Date.now()}`,
-      player_name,
-      opponent_name,
-      player_score: player_score || 0,
-      opponent_score: opponent_score || 0,
-      result: result || "win",
-      accuracy: accuracy !== undefined ? accuracy : 0,
-      category: category || "all",
-      mode: mode || "quick_match",
-      highest_combo: highest_combo || 0,
-      total_answered: total_answered || 0,
-      correct_count: correct_count || 0,
-      wrong_count: wrong_count || 0,
+    const payload: any = {
+      player_name: cleanName,
+      opponent_name: cleanOpponent,
+      player_score: Number(player_score) || 0,
+      opponent_score: Number(opponent_score) || 0,
+      result: cleanResult,
       created_at: new Date().toISOString(),
     };
-    if (user_id) fullPayload.user_id = user_id;
+    if (cleanRoomId) payload.room_id = cleanRoomId;
+    if (validUid) payload.user_id = validUid;
 
-    let { data, error } = await supabaseServer
+    const { data, error } = await supabaseServer
       .from("match_history")
-      .insert(fullPayload)
+      .insert(payload)
       .select()
       .maybeSingle();
 
     if (error) {
-      console.warn("Supabase match_history standard insert failed, trying fallback:", error.message);
-      // Fallback: insert minimal schema if extended columns don't exist yet
-      const fallbackPayload: any = {
-        player_name,
-        opponent_name,
-        player_score: player_score || 0,
-        opponent_score: opponent_score || 0,
-        result: result || "win",
-      };
-      const retry = await supabaseServer.from("match_history").insert(fallbackPayload);
-      if (retry.error) {
-        console.warn("Match history fallback insert error:", retry.error.message);
-        return res.status(400).json({ success: false, error: retry.error.message });
-      }
+      console.warn("Supabase match_history insert error:", error.message);
+      return res.status(400).json({ success: false, error: error.message });
     }
 
-    return res.json({ success: true, data: data || fullPayload });
+    return res.json({ success: true, data: data || payload });
   } catch (err: any) {
     console.error("Match history insert exception:", err);
     return res.status(500).json({ success: false, error: err.message });
@@ -363,15 +409,16 @@ app.get("/api/match-history/:playerName", async (req, res) => {
   const { playerName } = req.params;
   const userId = req.query.userId as string | undefined;
   const cleanName = playerName ? String(playerName).trim() : "";
+  const validUid = isValidUuid(userId) ? userId?.trim() : null;
 
   try {
     let query = supabaseServer.from("match_history").select("*");
-    if (userId && cleanName) {
-      query = query.or(`user_id.eq.${userId},player_name.ilike."${cleanName}",opponent_name.ilike."${cleanName}"`);
+    if (validUid && cleanName) {
+      query = query.or(`user_id.eq.${validUid},player_name.ilike."${cleanName}",opponent_name.ilike."${cleanName}"`);
     } else if (cleanName) {
       query = query.or(`player_name.ilike."${cleanName}",opponent_name.ilike."${cleanName}"`);
-    } else if (userId) {
-      query = query.eq("user_id", userId);
+    } else if (validUid) {
+      query = query.eq("user_id", validUid);
     }
 
     const { data, error } = await query
@@ -396,15 +443,15 @@ app.post("/api/profiles", async (req, res) => {
   }
 
   const { id, username, avatar_url } = req.body;
-  if (!id || !username) {
-    return res.status(400).json({ success: false, error: "Missing id or username" });
+  if (!id || !username || !isValidUuid(id)) {
+    return res.status(400).json({ success: false, error: "Valid UUID id and username are required" });
   }
 
   try {
     const { error } = await supabaseServer.from("profiles").upsert(
       {
         id,
-        username,
+        username: String(username).trim(),
         avatar_url: avatar_url || "",
         updated_at: new Date().toISOString(),
       },
@@ -418,6 +465,74 @@ app.post("/api/profiles", async (req, res) => {
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/rooms - Daftar room aktif di Supabase
+app.get("/api/rooms", async (req, res) => {
+  if (!supabaseServer) {
+    return res.json({ success: true, rooms: [] });
+  }
+  try {
+    const { data, error } = await supabaseServer
+      .from("rooms")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    if (error) {
+      return res.json({ success: true, rooms: [] });
+    }
+    return res.json({ success: true, rooms: data || [] });
+  } catch (err: any) {
+    return res.json({ success: true, rooms: [] });
+  }
+});
+
+// POST /api/rooms - Buat / Update room di Supabase
+// Schema public.rooms:
+// - id: text (primary key)
+// - room_code: text (unique)
+// - status: text (default 'waiting')
+// - created_at: timestamp with time zone (default now())
+// - host_id: uuid (foreign key auth.users.id)
+// - guest_id: uuid (foreign key auth.users.id)
+// - winner_id: uuid (foreign key auth.users.id)
+app.post("/api/rooms", async (req, res) => {
+  if (!supabaseServer) {
+    return res.json({ success: true });
+  }
+  const { id, room_code, status, host_id, guest_id, winner_id } = req.body;
+  if (!room_code) {
+    return res.status(400).json({ success: false, error: "room_code is required" });
+  }
+
+  try {
+    const normalizedCode = String(room_code).trim().toUpperCase();
+    const roomId = id || `room_${normalizedCode}`;
+
+    const payload: any = {
+      id: roomId,
+      room_code: normalizedCode,
+      status: status || "waiting",
+      created_at: new Date().toISOString(),
+    };
+    if (isValidUuid(host_id)) payload.host_id = host_id.trim();
+    if (isValidUuid(guest_id)) payload.guest_id = guest_id.trim();
+    if (isValidUuid(winner_id)) payload.winner_id = winner_id.trim();
+
+    const { data, error } = await supabaseServer
+      .from("rooms")
+      .upsert(payload, { onConflict: "room_code" })
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.warn("Rooms upsert warning:", error.message);
+    }
+    return res.json({ success: true, data });
+  } catch (err: any) {
+    return res.json({ success: false, error: err.message });
   }
 });
 

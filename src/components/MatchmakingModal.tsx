@@ -110,12 +110,35 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
 
     channelRef.current = channel;
 
+    // Sync private room creation to backend API & Supabase
+    if (mode === "private_room" && normalizedRoomCode) {
+      fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          room_code: normalizedRoomCode,
+          status: "waiting",
+        }),
+      }).catch(() => {});
+    }
+
     // Helper untuk konfirmasi pertandingan dan transisi kedua pemain
     const handleMatchConfirmed = (payload: any) => {
       if (hasMatchedRef.current || !payload) return;
       hasMatchedRef.current = true;
       setMatchStatus("found");
       audio.playBell();
+
+      if (mode === "private_room" && normalizedRoomCode) {
+        fetch("/api/rooms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            room_code: normalizedRoomCode,
+            status: "in_game",
+          }),
+        }).catch(() => {});
+      }
 
       const isHost = payload.hostId === myId;
       const oppName = isHost
