@@ -30,12 +30,15 @@ import { Numpad } from "./components/Numpad";
 import { GameOverModal } from "./components/GameOverModal";
 import { ComboTracker, getComboMultiplier } from "./components/ComboTracker";
 import { EmoteBar } from "./components/EmoteBar";
+import { calculateMatchScore, MatchScoreBreakdown } from "./utils/scoreCalculator";
 
 import { Timer, LogOut, Maximize2, Minimize2 } from "lucide-react";
 
 export default function App() {
   // Navigation & Game State
   const [stage, setStage] = useState<GameStage>("main_menu");
+  const [mainMenuDefaultTab, setMainMenuDefaultTab] = useState<"arena" | "stats" | "leaderboard" | "skins">("arena");
+  const [latestScoreBreakdown, setLatestScoreBreakdown] = useState<MatchScoreBreakdown | null>(null);
   const [mode, setMode] = useState<GameMode>("practice");
   const [category, setCategory] = useState<QuestionCategory>("all");
   const [aiDifficulty, setAiDifficulty] = useState<"easy" | "normal" | "hard">(
@@ -625,31 +628,25 @@ export default function App() {
       if (savedMatchRef.current === currentMatchId) return;
       savedMatchRef.current = currentMatchId;
 
-      let finalLifetime = lifetimeScore;
-      if (p1.score > 0) {
-        finalLifetime = lifetimeScore + p1.score;
-        setLifetimeScore((prevTotal) => {
-          const updated = prevTotal + p1.score;
-          localStorage.setItem("mb_lifetime_score", updated.toString());
-          return updated;
-        });
-      }
+      // 🥊 Kalkulasi Skor Lengkap & Transparan (Base Points + Bonus K.O. + Combo + Akurasi)
+      const calculatedBreakdown = calculateMatchScore({
+        p1Score: p1.score,
+        p2Score: p2.score,
+        finishReason,
+        highestCombo,
+        correctCount,
+        totalAnswered,
+        prevLifetimeScore: lifetimeScore,
+      });
 
-      const matchResult: "win" | "loss" | "draw" =
-        finishReason === "ko_win"
-          ? "win"
-          : finishReason === "ko_loss"
-            ? "loss"
-            : p1.score > p2.score
-              ? "win"
-              : p1.score < p2.score
-                ? "loss"
-                : "draw";
+      setLatestScoreBreakdown(calculatedBreakdown);
 
-      const matchAccuracy =
-        totalAnswered > 0
-          ? Math.round((correctCount / totalAnswered) * 100)
-          : 0;
+      const finalLifetime = calculatedBreakdown.newLifetimeScore;
+      setLifetimeScore(finalLifetime);
+      localStorage.setItem("mb_lifetime_score", finalLifetime.toString());
+
+      const matchResult: "win" | "loss" | "draw" = calculatedBreakdown.matchResult;
+      const matchAccuracy = calculatedBreakdown.accuracy;
 
       const newRecord: MatchRecord = {
         id: `match_${Date.now()}`,
@@ -680,7 +677,7 @@ export default function App() {
         userId: currentUser?.uid || (currentUser as any)?.id,
         playerName: currentUser?.displayName || (currentUser as any)?.name || playerName || "Player 1",
         opponentName: p2.name,
-        scoreEarned: p1.score,
+        scoreEarned: calculatedBreakdown.totalPointsEarned,
         opponentScore: p2.score,
         newLifetimeScore: finalLifetime,
         matchResult,
@@ -1143,6 +1140,7 @@ export default function App() {
             setCurrentUser(null);
             setPlayerName("Player 1");
           }}
+          defaultActiveTab={mainMenuDefaultTab}
         />
       )}
 
@@ -1305,8 +1303,13 @@ export default function App() {
           rematchStatus={rematchStatus}
           opponentLeft={opponentLeft}
           lifetimeScore={lifetimeScore}
+          scoreBreakdown={latestScoreBreakdown || undefined}
           onRematch={handleRematchClick}
           onExit={handleExitMatch}
+          onOpenLeaderboard={() => {
+            setMainMenuDefaultTab("leaderboard");
+            handleExitMatch();
+          }}
         />
       )}
     </div>

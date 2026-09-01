@@ -1,6 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import confetti from 'canvas-confetti';
-import { Trophy, RefreshCw, Home, Flame, CheckCircle, XCircle, TrendingUp, Activity, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import {
+  Trophy,
+  RefreshCw,
+  Home,
+  Flame,
+  CheckCircle,
+  XCircle,
+  TrendingUp,
+  Activity,
+  Loader2,
+  AlertCircle,
+  Sparkles,
+  Award,
+  Zap,
+  Globe,
+  ArrowRight,
+  ShieldCheck,
+} from 'lucide-react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -16,6 +33,7 @@ import { audio } from '../utils/audio';
 import { BoxerCanvas } from './BoxerCanvas';
 import { EmoteBar } from './EmoteBar';
 import { getRankProgress } from '../utils/ranks';
+import { calculateMatchScore, MatchScoreBreakdown } from '../utils/scoreCalculator';
 
 interface GameOverModalProps {
   p1: PlayerState;
@@ -31,8 +49,10 @@ interface GameOverModalProps {
   rematchStatus?: 'idle' | 'requested_by_me' | 'requested_by_opponent';
   opponentLeft?: boolean;
   lifetimeScore?: number;
+  scoreBreakdown?: MatchScoreBreakdown;
   onRematch: () => void;
   onExit: () => void;
+  onOpenLeaderboard?: () => void;
 }
 
 export const GameOverModal: React.FC<GameOverModalProps> = ({
@@ -49,16 +69,33 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   rematchStatus = 'idle',
   opponentLeft = false,
   lifetimeScore = 0,
+  scoreBreakdown,
   onRematch,
   onExit,
+  onOpenLeaderboard,
 }) => {
   const isP1Winner = finishReason === "ko_win" ? true : finishReason === "ko_loss" ? false : p1.score > p2.score;
   const isDraw = finishReason === "time_up" && p1.score === p2.score;
   const isKnockout = finishReason === "ko_win" || finishReason === "ko_loss";
 
-  const rankProgress = React.useMemo(() => {
-    return getRankProgress(lifetimeScore);
-  }, [lifetimeScore]);
+  // Hitung rincian perolehan poin pertandingan
+  const breakdown: MatchScoreBreakdown = useMemo(() => {
+    if (scoreBreakdown) return scoreBreakdown;
+    return calculateMatchScore({
+      p1Score: p1.score,
+      p2Score: p2.score,
+      finishReason,
+      highestCombo,
+      correctCount,
+      totalAnswered,
+      prevLifetimeScore: Math.max(0, lifetimeScore - p1.score),
+    });
+  }, [scoreBreakdown, p1.score, p2.score, finishReason, highestCombo, correctCount, totalAnswered, lifetimeScore]);
+
+  const displayLifetime = lifetimeScore > 0 ? lifetimeScore : breakdown.newLifetimeScore;
+  const rankProgress = useMemo(() => {
+    return getRankProgress(displayLifetime);
+  }, [displayLifetime]);
   const currentTier = rankProgress.currentTier;
 
   const [victoryEmote, setVictoryEmote] = useState<ActionType>(
@@ -89,7 +126,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   };
 
   // Format chart data
-  const chartData = React.useMemo(() => {
+  const chartData = useMemo(() => {
     if (!answerHistory || answerHistory.length === 0) {
       return [
         { name: 'Q0', accuracy: 100, correct: 0, wrong: 0, score: 0 },
@@ -116,7 +153,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         {/* Glow Background */}
         <div className={`absolute -top-12 left-1/2 -translate-x-1/2 w-48 h-48 rounded-full blur-3xl -z-10 ${
           isP1Winner ? 'bg-amber-500/20' : 'bg-rose-500/20'
-        }`}></div>
+        }`} />
 
         {/* Top Header Result */}
         <div className="my-1">
@@ -164,7 +201,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
 
         {/* Victory Ring Boxer Canvas & Interactive Emote Controls */}
         <div className="my-3 space-y-2">
-          <div className="rounded-2xl overflow-hidden border-2 border-slate-800 shadow-xl max-h-[220px]">
+          <div className="rounded-2xl overflow-hidden border-2 border-slate-800 shadow-xl max-h-[200px]">
             <BoxerCanvas
               p1={{ ...p1, currentAction: isP1Winner ? victoryEmote : 'knockdown' }}
               p2={{ ...p2, currentAction: isP1Winner ? 'knockdown' : victoryEmote }}
@@ -177,18 +214,66 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           />
         </div>
 
-        {/* Score Comparison Board */}
-        <div className="my-3 bg-slate-950 border border-slate-800 rounded-2xl p-3 grid grid-cols-2 gap-3">
-          <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-800">
-            <span className="text-xs text-slate-400 font-bold block">{p1.name} (P1)</span>
-            <span className="font-arcade text-2xl sm:text-3xl text-amber-400 block mt-0.5">{p1.score}</span>
-            <span className="text-[10px] text-emerald-400 font-semibold">SKOR AKHIR</span>
+        {/* 📊 RINCIAN PERHITUNGAN SKOR & POIN KLASEMEN (SCORE BREAKDOWN) */}
+        <div className="my-3 bg-gradient-to-b from-slate-950 to-slate-900 border-2 border-amber-500/40 rounded-2xl p-3.5 text-left shadow-lg">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2.5">
+            <div className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-amber-400" />
+              <h3 className="font-arcade text-xs text-amber-300 font-bold uppercase tracking-wide">
+                PERHITUNGAN SKOR AKHIR & KLASEMEN
+              </h3>
+            </div>
+            <span className="text-[10px] text-emerald-400 font-bold font-mono">
+              +{breakdown.totalPointsEarned} PTS MASUK KLASEMEN
+            </span>
           </div>
 
-          <div className="p-2.5 bg-slate-900 rounded-xl border border-slate-800">
-            <span className="text-xs text-slate-400 font-bold block">{p2.name} (P2)</span>
-            <span className="font-arcade text-2xl sm:text-3xl text-blue-400 block mt-0.5">{p2.score}</span>
-            <span className="text-[10px] text-slate-400 font-semibold">SKOR AKHIR</span>
+          <div className="space-y-1.5 text-xs">
+            {/* Base score */}
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <span>🥊</span> Poin Jawaban Soal:
+              </span>
+              <span className="font-mono font-bold text-slate-100">+{breakdown.baseScore} PTS</span>
+            </div>
+
+            {/* Result bonus */}
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="flex items-center gap-1.5">
+                <span>{breakdown.isKnockout ? "💥" : breakdown.isWin ? "🏆" : "🥊"}</span> {breakdown.resultLabel}:
+              </span>
+              <span className="font-mono font-bold text-amber-400">+{breakdown.resultBonus} PTS</span>
+            </div>
+
+            {/* Combo bonus */}
+            {breakdown.comboBonus > 0 && (
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="flex items-center gap-1.5">
+                  <span>🔥</span> Bonus Max Combo ({highestCombo}x):
+                </span>
+                <span className="font-mono font-bold text-amber-400">+{breakdown.comboBonus} PTS</span>
+              </div>
+            )}
+
+            {/* Accuracy bonus */}
+            {breakdown.accuracyBonus > 0 && (
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="flex items-center gap-1.5">
+                  <span>🎯</span> Bonus Akurasi ({breakdown.accuracyPercent}%):
+                </span>
+                <span className="font-mono font-bold text-emerald-400">+{breakdown.accuracyBonus} PTS</span>
+              </div>
+            )}
+
+            {/* Total Highlight */}
+            <div className="pt-2 mt-2 border-t border-slate-800 flex items-center justify-between bg-amber-500/10 p-2 rounded-xl border border-amber-500/30">
+              <span className="font-bold text-amber-300 text-xs flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" /> TOTAL POIN DIDAPAT:
+              </span>
+              <span className="font-arcade text-base text-amber-300 font-bold font-mono">
+                +{breakdown.totalPointsEarned} PTS
+              </span>
+            </div>
           </div>
         </div>
 
@@ -207,7 +292,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
                   </span>
                 </div>
                 <span className="text-[11px] text-slate-300 font-mono">
-                  Total Karir: <strong className="text-amber-400">{lifetimeScore.toLocaleString("id-ID")} PTS</strong>
+                  Total Karir Klasemen: <strong className="text-amber-400">{displayLifetime.toLocaleString("id-ID")} PTS</strong>
                 </span>
               </div>
             </div>
@@ -239,7 +324,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           </div>
         </div>
 
-        {/* Stats Breakdown */}
+        {/* Stats Breakdown Grid */}
         <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-2.5 my-3 text-xs text-slate-300 grid grid-cols-4 gap-2">
           <div className="flex flex-col items-center">
             <span className="text-slate-400 font-medium text-[10px]">SOAL</span>
@@ -282,7 +367,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
             </span>
           </div>
 
-          <div className="w-full h-44 mt-1">
+          <div className="w-full h-40 mt-1">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
@@ -369,52 +454,68 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
         )}
 
         {/* Control Action Buttons */}
-        <div className="flex items-center gap-3 mt-3">
-          <button
-            onClick={() => {
-              audio.playClick();
-              onExit();
-            }}
-            className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-1.5"
-          >
-            <Home className="w-4 h-4" />
-            MENU UTAMA
-          </button>
+        <div className="space-y-2 mt-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                audio.playClick();
+                onExit();
+              }}
+              className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 rounded-xl font-bold text-xs sm:text-sm transition flex items-center justify-center gap-1.5"
+            >
+              <Home className="w-4 h-4" />
+              MENU UTAMA
+            </button>
 
-          <button
-            onClick={() => {
-              if (opponentLeft) return;
-              audio.playClick();
-              onRematch();
-            }}
-            disabled={opponentLeft}
-            className={`flex-1 py-3 font-arcade rounded-xl text-xs sm:text-sm transition shadow-lg flex items-center justify-center gap-1.5 ${
-              opponentLeft
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
-                : rematchStatus === 'requested_by_opponent'
-                ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 glow-gold animate-bounce ring-2 ring-emerald-300'
-                : rematchStatus === 'requested_by_me'
-                ? 'bg-amber-500/80 hover:bg-amber-500 text-slate-950 glow-gold'
-                : 'bg-amber-500 hover:bg-amber-400 text-slate-950 glow-gold'
-            }`}
-          >
-            {rematchStatus === 'requested_by_me' ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                MENUNGGU LAWAN...
-              </>
-            ) : rematchStatus === 'requested_by_opponent' ? (
-              <>
-                <Sparkles className="w-4 h-4" />
-                TERIMA REMATCH
-              </>
-            ) : (
-              <>
-                <RefreshCw className="w-4 h-4" />
-                REMATCH
-              </>
-            )}
-          </button>
+            <button
+              onClick={() => {
+                if (opponentLeft) return;
+                audio.playClick();
+                onRematch();
+              }}
+              disabled={opponentLeft}
+              className={`flex-1 py-3 font-arcade rounded-xl text-xs sm:text-sm transition shadow-lg flex items-center justify-center gap-1.5 ${
+                opponentLeft
+                  ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                  : rematchStatus === 'requested_by_opponent'
+                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 glow-gold animate-bounce ring-2 ring-emerald-300'
+                  : rematchStatus === 'requested_by_me'
+                  ? 'bg-amber-500/80 hover:bg-amber-500 text-slate-950 glow-gold'
+                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 glow-gold'
+              }`}
+            >
+              {rematchStatus === 'requested_by_me' ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  MENUNGGU LAWAN...
+                </>
+              ) : rematchStatus === 'requested_by_opponent' ? (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  TERIMA REMATCH
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4" />
+                  REMATCH
+                </>
+              )}
+            </button>
+          </div>
+
+          {onOpenLeaderboard && (
+            <button
+              onClick={() => {
+                audio.playClick();
+                onOpenLeaderboard();
+              }}
+              className="w-full py-2.5 bg-gradient-to-r from-amber-950/60 via-slate-900 to-amber-950/60 hover:from-amber-900/60 hover:to-amber-900/60 border border-amber-500/40 rounded-xl text-xs font-bold text-amber-300 flex items-center justify-center gap-2 transition active:scale-98 shadow"
+            >
+              <Globe className="w-4 h-4 text-amber-400" />
+              <span>LIHAT PERINGKAT SAYA DI KLASEMEN GLOBAL</span>
+              <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -52,6 +52,7 @@ import {
 } from "../utils/dailyChallenges";
 import { LoginModal } from "./LoginModal";
 import { RankRoadmapModal } from "./RankRoadmapModal";
+import { PlayerHistoryModal } from "./PlayerHistoryModal";
 import {
   getRankProgress,
   getRankTierByScore,
@@ -89,6 +90,7 @@ interface MainMenuProps {
   onUserLogout: () => void;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
+  defaultActiveTab?: "arena" | "stats" | "leaderboard" | "skins";
 }
 
 export const MainMenu: React.FC<MainMenuProps> = ({
@@ -108,15 +110,17 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   onUserLogout,
   isFullscreen = false,
   onToggleFullscreen,
+  defaultActiveTab,
 }) => {
   const [activeTab, setActiveTab] = useState<
     "arena" | "stats" | "leaderboard" | "skins"
-  >("arena");
+  >(defaultActiveTab || "arena");
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showPrivateModal, setShowPrivateModal] = useState(false);
   const [showDailyModal, setShowDailyModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showRankRoadmap, setShowRankRoadmap] = useState(false);
+  const [selectedLeaderboardPlayer, setSelectedLeaderboardPlayer] = useState<LeaderboardEntry | null>(null);
   const [selectedLeaderboardTier, setSelectedLeaderboardTier] = useState<string>("all");
 
   const rankProgress = useMemo(() => {
@@ -1632,34 +1636,46 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           <div className="grid grid-cols-3 gap-2 py-1">
             {/* Rank 2 - Silver */}
             {computedLeaderboard[1] && (
-              <div className="bg-slate-900/80 border border-slate-700/80 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow">
+              <button
+                onClick={() => {
+                  audio.playClick();
+                  setSelectedLeaderboardPlayer(computedLeaderboard[1]);
+                }}
+                className="bg-slate-900/80 hover:bg-slate-800/80 active:scale-95 border border-slate-700/80 hover:border-slate-500 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow transition cursor-pointer group"
+              >
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                   <Medal className="w-6 h-6 text-slate-300 drop-shadow" />
                 </div>
-                <div className="mt-2 text-2xl w-10 h-10 flex items-center justify-center overflow-hidden rounded-full">
+                <div className="mt-2 text-2xl w-10 h-10 flex items-center justify-center overflow-hidden rounded-full group-hover:scale-110 transition">
                   {renderAvatarContent(computedLeaderboard[1].avatar, "🥈", "w-full h-full object-cover rounded-full")}
                 </div>
                 <div className="mt-1 w-full truncate">
-                  <span className="font-bold text-xs text-slate-200 block truncate">
+                  <span className="font-bold text-xs text-slate-200 block truncate group-hover:text-amber-300">
                     {computedLeaderboard[1].name}
                   </span>
                   <span className="text-[10px] text-amber-400 font-bold block font-mono">
                     {computedLeaderboard[1].score.toLocaleString("id-ID")} PTS
                   </span>
                   <span className="text-[9px] text-slate-400 block truncate">
-                    {getRankTierByScore(computedLeaderboard[1].score).shortName}
+                    {getRankTierByScore(computedLeaderboard[1].score).shortName} • <span className="text-amber-400/80 underline">Riwayat</span>
                   </span>
                 </div>
-              </div>
+              </button>
             )}
 
             {/* Rank 1 - Gold Champion */}
             {computedLeaderboard[0] && (
-              <div className="bg-gradient-to-b from-amber-950/90 to-slate-900 border-2 border-yellow-400 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow-xl scale-105 z-10">
+              <button
+                onClick={() => {
+                  audio.playClick();
+                  setSelectedLeaderboardPlayer(computedLeaderboard[0]);
+                }}
+                className="bg-gradient-to-b from-amber-950/90 to-slate-900 hover:from-amber-900/90 hover:to-slate-850 active:scale-95 border-2 border-yellow-400 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow-xl scale-105 z-10 transition cursor-pointer group"
+              >
                 <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                  <Crown className="w-7 h-7 text-yellow-300 fill-yellow-400 drop-shadow-[0_2px_8px_rgba(250,204,21,0.8)]" />
+                  <Crown className="w-7 h-7 text-yellow-300 fill-yellow-400 drop-shadow-[0_2px_8px_rgba(250,204,21,0.8)] group-hover:rotate-12 transition" />
                 </div>
-                <div className="mt-2 text-3xl w-12 h-12 flex items-center justify-center overflow-hidden rounded-full border-2 border-yellow-400">
+                <div className="mt-2 text-3xl w-12 h-12 flex items-center justify-center overflow-hidden rounded-full border-2 border-yellow-400 group-hover:scale-110 transition">
                   {renderAvatarContent(computedLeaderboard[0].avatar, "👑", "w-full h-full object-cover rounded-full")}
                 </div>
                 <div className="mt-1 w-full truncate">
@@ -1670,33 +1686,39 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                     {computedLeaderboard[0].score.toLocaleString("id-ID")} PTS
                   </span>
                   <span className="text-[9px] text-yellow-300 font-semibold block truncate">
-                    {getRankTierByScore(computedLeaderboard[0].score).name}
+                    {getRankTierByScore(computedLeaderboard[0].score).name} • <span className="underline">Riwayat</span>
                   </span>
                 </div>
-              </div>
+              </button>
             )}
 
             {/* Rank 3 - Bronze */}
             {computedLeaderboard[2] && (
-              <div className="bg-slate-900/80 border border-amber-900/60 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow">
+              <button
+                onClick={() => {
+                  audio.playClick();
+                  setSelectedLeaderboardPlayer(computedLeaderboard[2]);
+                }}
+                className="bg-slate-900/80 hover:bg-slate-800/80 active:scale-95 border border-amber-900/60 hover:border-amber-700 rounded-xl p-2.5 text-center flex flex-col items-center justify-between relative shadow transition cursor-pointer group"
+              >
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                   <Medal className="w-6 h-6 text-amber-600 drop-shadow" />
                 </div>
-                <div className="mt-2 text-2xl w-10 h-10 flex items-center justify-center overflow-hidden rounded-full">
+                <div className="mt-2 text-2xl w-10 h-10 flex items-center justify-center overflow-hidden rounded-full group-hover:scale-110 transition">
                   {renderAvatarContent(computedLeaderboard[2].avatar, "🥉", "w-full h-full object-cover rounded-full")}
                 </div>
                 <div className="mt-1 w-full truncate">
-                  <span className="font-bold text-xs text-slate-200 block truncate">
+                  <span className="font-bold text-xs text-slate-200 block truncate group-hover:text-amber-300">
                     {computedLeaderboard[2].name}
                   </span>
                   <span className="text-[10px] text-amber-400 font-bold block font-mono">
                     {computedLeaderboard[2].score.toLocaleString("id-ID")} PTS
                   </span>
                   <span className="text-[9px] text-slate-400 block truncate">
-                    {getRankTierByScore(computedLeaderboard[2].score).shortName}
+                    {getRankTierByScore(computedLeaderboard[2].score).shortName} • <span className="text-amber-400/80 underline">Riwayat</span>
                   </span>
                 </div>
-              </div>
+              </button>
             )}
           </div>
 
@@ -1725,12 +1747,16 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 .map((entry) => {
                   const entryTier = getRankTierByScore(entry.score);
                   return (
-                    <div
+                    <button
                       key={entry.id}
-                      className={`flex items-center justify-between p-2.5 rounded-xl border transition ${
+                      onClick={() => {
+                        audio.playClick();
+                        setSelectedLeaderboardPlayer(entry);
+                      }}
+                      className={`w-full text-left flex items-center justify-between p-2.5 rounded-xl border transition group cursor-pointer ${
                         entry.isCurrentUser
-                          ? "bg-amber-500/10 border-amber-400/80 shadow-md ring-1 ring-amber-400/30"
-                          : "bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/40"
+                          ? "bg-amber-500/10 border-amber-400/80 shadow-md ring-1 ring-amber-400/30 hover:bg-amber-500/20"
+                          : "bg-slate-950/60 border-slate-800/80 hover:bg-slate-800/60 hover:border-slate-700"
                       }`}
                     >
                       <div className="flex items-center gap-3 min-w-0">
@@ -1747,13 +1773,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                         >
                           #{entry.rank}
                         </span>
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-lg overflow-hidden bg-slate-900 border border-slate-700 flex-shrink-0">
+                        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-lg overflow-hidden bg-slate-900 border border-slate-700 flex-shrink-0 group-hover:scale-105 transition">
                           {renderAvatarContent(entry.avatar, "🥊", "w-full h-full object-cover")}
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 truncate">
                             <span
-                              className={`font-bold text-xs truncate ${
+                              className={`font-bold text-xs truncate group-hover:text-amber-300 transition ${
                                 entry.isCurrentUser
                                   ? "text-amber-300 font-black"
                                   : "text-slate-200"
@@ -1786,6 +1812,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                             </span>
                             <span>•</span>
                             <span>{entry.winRate}% Win</span>
+                            <span>•</span>
+                            <span className="text-amber-400/80 underline text-[9px]">Buka Riwayat</span>
                           </div>
                         </div>
                       </div>
@@ -1806,7 +1834,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                           </span>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
             </div>
@@ -2085,6 +2113,14 @@ export const MainMenu: React.FC<MainMenuProps> = ({
         lifetimeScore={lifetimeScore}
         playerName={currentUser?.displayName || currentUser?.name || playerName || "Pemain Kamu"}
       />
+
+      {/* Player Match History & Leaderboard Detail Modal */}
+      {selectedLeaderboardPlayer && (
+        <PlayerHistoryModal
+          player={selectedLeaderboardPlayer}
+          onClose={() => setSelectedLeaderboardPlayer(null)}
+        />
+      )}
     </div>
   );
 };
