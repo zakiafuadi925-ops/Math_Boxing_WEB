@@ -2065,6 +2065,36 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               🎲 Buat Kode Otomatis (Acak)
             </button>
 
+            {/* Education Level Selector in Private Room */}
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-left">
+              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <GraduationCap className="w-3 h-3 text-amber-400" /> TINGKAT PENDIDIKAN:
+                </span>
+                <span className="text-amber-400 font-bold">{currentEduConfig.icon} {currentEduConfig.label}</span>
+              </span>
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
+                {EDUCATION_LEVELS.map((lvl) => (
+                  <button
+                    key={lvl.id}
+                    type="button"
+                    onClick={() => {
+                      audio.playClick();
+                      onSelectEducationLevel(lvl.id);
+                    }}
+                    className={`py-1.5 px-0.5 rounded-lg text-[10px] font-bold transition text-center flex flex-col items-center justify-center ${
+                      selectedEducationLevel === lvl.id
+                        ? "bg-amber-500 text-slate-950 font-black shadow-sm"
+                        : "bg-slate-900 text-slate-400 hover:bg-slate-800"
+                    }`}
+                  >
+                    <span>{lvl.icon}</span>
+                    <span className="leading-none mt-0.5">{lvl.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Duration Selector in Private Room */}
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-left">
               <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5 flex items-center gap-1">
@@ -2110,6 +2140,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                       undefined,
                       cleanedCode,
                       selectedDuration,
+                      selectedEducationLevel,
                     );
                   }
                 }}

@@ -62,22 +62,22 @@ export const Numpad: React.FC<NumpadProps> = memo(({ onSubmitAnswer, isLocked, d
   }, [handleDigit, handleMinus, handleClear, handleSubmit, isLocked, disabled]);
 
   return (
-    <div className="w-full max-w-md mx-auto bg-slate-900/95 border border-slate-700/80 rounded-2xl p-2 sm:p-3 shadow-xl touch-fast gpu-accelerated">
+    <div className="w-full max-w-md mx-auto bg-slate-900/95 border border-slate-700/80 rounded-xl sm:rounded-2xl p-1.5 sm:p-2.5 shadow-xl touch-fast gpu-accelerated">
       {/* Display Screen */}
-      <div className="relative mb-1.5 sm:mb-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1 sm:py-1.5 text-right flex items-center justify-between min-h-[38px] sm:min-h-[46px]">
-        <span className="text-[10px] sm:text-xs uppercase tracking-wider font-bold text-slate-500">
+      <div className="relative mb-1 sm:mb-1.5 bg-slate-950 border border-slate-800 rounded-lg sm:rounded-xl px-2.5 py-1 text-right flex items-center justify-between min-h-[34px] sm:min-h-[42px]">
+        <span className="text-[9px] sm:text-xs uppercase tracking-wider font-bold text-slate-500">
           {isLocked ? '🔒 PENALTY LOCK' : 'JAWABAN'}
         </span>
         <span
-          className={`font-arcade text-xl sm:text-2xl font-extrabold tracking-wider ${
-            isLocked ? 'text-red-500 animate-pulse' : 'text-amber-400'
+          className={`font-arcade text-lg sm:text-2xl font-extrabold tracking-wider ${
+            isLocked ? 'text-red-500 animate-pulse text-sm sm:text-lg' : 'text-amber-400'
           }`}
         >
           {inputVal || (isLocked ? 'SALAH! (1s)' : '0')}
         </span>
 
         {isLocked && (
-          <div className="absolute inset-0 bg-red-950/90 rounded-xl flex items-center justify-center gap-1.5 text-red-300 font-bold text-xs">
+          <div className="absolute inset-0 bg-red-950/90 rounded-lg sm:rounded-xl flex items-center justify-center gap-1.5 text-red-300 font-bold text-xs">
             <Lock className="w-3.5 h-3.5 animate-spin" />
             JAWABAN SALAH! TUNGGU 1s
           </div>
@@ -85,14 +85,14 @@ export const Numpad: React.FC<NumpadProps> = memo(({ onSubmitAnswer, isLocked, d
       </div>
 
       {/* Calculator Buttons Grid */}
-      <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+      <div className="grid grid-cols-3 gap-1 sm:gap-1.5">
         {['7', '8', '9', '4', '5', '6', '1', '2', '3'].map((num) => (
           <button
             key={num}
             type="button"
             onClick={() => handleDigit(num)}
             disabled={isLocked || disabled}
-            className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-colors duration-75 text-slate-100 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
+            className="w-full h-9 sm:h-11 md:h-12 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-base sm:text-xl font-bold font-arcade transition-colors duration-75 text-slate-100 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
           >
             {num}
           </button>
@@ -103,9 +103,9 @@ export const Numpad: React.FC<NumpadProps> = memo(({ onSubmitAnswer, isLocked, d
           type="button"
           onClick={handleClear}
           disabled={isLocked || disabled}
-          className="w-full h-10 sm:h-12 md:h-13 bg-rose-900/80 hover:bg-rose-800 active:bg-rose-600 border-b-2 sm:border-b-4 border-rose-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-sm sm:text-base font-bold text-rose-200 transition-colors duration-75 flex items-center justify-center gap-1 shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
+          className="w-full h-9 sm:h-11 md:h-12 bg-rose-900/80 hover:bg-rose-800 active:bg-rose-600 border-b-2 sm:border-b-4 border-rose-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-xs sm:text-base font-bold text-rose-200 transition-colors duration-75 flex items-center justify-center gap-1 shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
         >
-          <Delete className="w-4 h-4" />
+          <Delete className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           CLR
         </button>
 
@@ -113,7 +113,7 @@ export const Numpad: React.FC<NumpadProps> = memo(({ onSubmitAnswer, isLocked, d
           type="button"
           onClick={() => handleDigit('0')}
           disabled={isLocked || disabled}
-          className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-colors duration-75 text-slate-100 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
+          className="w-full h-9 sm:h-11 md:h-12 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-base sm:text-xl font-bold font-arcade transition-colors duration-75 text-slate-100 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
         >
           0
         </button>
@@ -122,21 +122,21 @@ export const Numpad: React.FC<NumpadProps> = memo(({ onSubmitAnswer, isLocked, d
           type="button"
           onClick={handleMinus}
           disabled={isLocked || disabled}
-          className="w-full h-10 sm:h-12 md:h-13 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-lg sm:text-xl font-bold font-arcade transition-colors duration-75 text-amber-400 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
+          className="w-full h-9 sm:h-11 md:h-12 bg-slate-800 hover:bg-slate-700 active:bg-amber-500 active:text-slate-950 border-b-2 sm:border-b-4 border-slate-950 active:border-b-0 active:translate-y-0.5 rounded-lg sm:rounded-xl text-base sm:text-xl font-bold font-arcade transition-colors duration-75 text-amber-400 flex items-center justify-center shadow-md disabled:opacity-50 disabled:pointer-events-none touch-fast"
         >
           -
         </button>
       </div>
 
       {/* Full Width Submit Enter Button */}
-      <div className="mt-1.5 sm:mt-2">
+      <div className="mt-1 sm:mt-1.5">
         <button
           type="button"
           onClick={handleSubmit}
           disabled={isLocked || disabled || inputVal === '' || inputVal === '-'}
-          className="w-full h-10 sm:h-12 md:h-13 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 active:scale-[0.98] border-b-2 sm:border-b-4 border-amber-700 rounded-lg sm:rounded-xl text-slate-950 font-arcade text-base sm:text-lg font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg transition-transform disabled:opacity-50 disabled:pointer-events-none glow-gold touch-fast"
+          className="w-full h-9 sm:h-11 md:h-12 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 active:scale-[0.98] border-b-2 sm:border-b-4 border-amber-700 rounded-lg sm:rounded-xl text-slate-950 font-arcade text-sm sm:text-base font-black uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-lg transition-transform disabled:opacity-50 disabled:pointer-events-none glow-gold touch-fast"
         >
-          <CornerDownLeft className="w-4 h-4 sm:w-5 sm:h-5 stroke-[3]" />
+          <CornerDownLeft className="w-4 h-4 stroke-[3]" />
           SERANG / ENTER
         </button>
       </div>

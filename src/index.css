@@ -17,6 +17,19 @@
     -webkit-tap-highlight-color: transparent;
     user-select: none;
   }
+
+  .safe-pt {
+    padding-top: max(0.25rem, env(safe-area-inset-top, 0px));
+  }
+
+  .safe-pb {
+    padding-bottom: max(0.25rem, env(safe-area-inset-bottom, 0px));
+  }
+
+  .safe-px {
+    padding-left: max(0.25rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.25rem, env(safe-area-inset-right, 0px));
+  }
 }
 
 /* Global Mobile Touch & Smooth Scroll Performance */
@@ -26,6 +39,7 @@ html, body {
   overscroll-behavior-y: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-height: 100dvh;
 }
 
 button {

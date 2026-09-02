@@ -67,19 +67,23 @@ export default function App() {
   const [activeDuration, setActiveDuration] = useState<GameDuration>(300);
   const [finishReason, setFinishReason] = useState<"ko_win" | "ko_loss" | "time_up">("time_up");
 
-  // Fullscreen Detection & Toggle (Optimized for Mobile)
+  // Fullscreen Detection & Toggle (Optimized for iOS, iPhone 15 & Desktop)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  const [isSimulatedFullscreen, setIsSimulatedFullscreen] = useState<boolean>(false);
 
   useEffect(() => {
     const updateFs = () => {
-      setIsFullscreen(
-        Boolean(
-          document.fullscreenElement ||
-          (document as any).webkitFullscreenElement ||
-          (document as any).mozFullScreenElement ||
-          (document as any).msFullscreenElement
-        )
+      const isNativeFs = Boolean(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
       );
+      if (isNativeFs) {
+        setIsFullscreen(true);
+      } else if (!isSimulatedFullscreen) {
+        setIsFullscreen(false);
+      }
     };
 
     document.addEventListener("fullscreenchange", updateFs);
@@ -93,39 +97,74 @@ export default function App() {
       document.removeEventListener("mozfullscreenchange", updateFs);
       document.removeEventListener("MSFullscreenChange", updateFs);
     };
-  }, []);
+  }, [isSimulatedFullscreen]);
+
+  // Lock body scroll and window position when fullscreen
+  useEffect(() => {
+    if (isFullscreen || isSimulatedFullscreen) {
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.overflow = 'hidden';
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    } else {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+    }
+  }, [isFullscreen, isSimulatedFullscreen]);
 
   const toggleFullscreen = useCallback(() => {
     audio.playClick();
     try {
       const doc = document as any;
       const docEl = document.documentElement as any;
+      const isCurrentlyFs = isFullscreen || isSimulatedFullscreen;
 
-      if (!doc.fullscreenElement && !doc.webkitFullscreenElement && !doc.mozFullScreenElement && !doc.msFullscreenElement) {
+      if (!isCurrentlyFs) {
+        // Try native fullscreen first
         if (docEl.requestFullscreen) {
-          docEl.requestFullscreen().catch(() => {});
+          docEl.requestFullscreen().then(() => {
+            setIsFullscreen(true);
+            setIsSimulatedFullscreen(false);
+          }).catch(() => {
+            // iOS Safari rejects requestFullscreen or lacks support: Fallback to simulated fullscreen
+            setIsSimulatedFullscreen(true);
+            setIsFullscreen(true);
+          });
         } else if (docEl.webkitRequestFullscreen) {
-          docEl.webkitRequestFullscreen();
-        } else if (docEl.mozRequestFullScreen) {
-          docEl.mozRequestFullScreen();
-        } else if (docEl.msRequestFullscreen) {
-          docEl.msRequestFullscreen();
+          try {
+            docEl.webkitRequestFullscreen();
+            setIsFullscreen(true);
+          } catch (e) {
+            setIsSimulatedFullscreen(true);
+            setIsFullscreen(true);
+          }
+        } else {
+          // iOS Safari fallback
+          setIsSimulatedFullscreen(true);
+          setIsFullscreen(true);
         }
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
       } else {
-        if (doc.exitFullscreen) {
-          doc.exitFullscreen().catch(() => {});
-        } else if (doc.webkitExitFullscreen) {
-          doc.webkitExitFullscreen();
-        } else if (doc.mozCancelFullScreen) {
-          doc.mozCancelFullScreen();
-        } else if (doc.msExitFullscreen) {
-          doc.msExitFullscreen();
+        // Exit fullscreen
+        setIsSimulatedFullscreen(false);
+        setIsFullscreen(false);
+        if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement) {
+          if (doc.exitFullscreen) {
+            doc.exitFullscreen().catch(() => {});
+          } else if (doc.webkitExitFullscreen) {
+            doc.webkitExitFullscreen();
+          } else if (doc.mozCancelFullScreen) {
+            doc.mozCancelFullScreen();
+          } else if (doc.msExitFullscreen) {
+            doc.msExitFullscreen();
+          }
         }
       }
     } catch (err) {
-      console.warn("Fullscreen toggle exception:", err);
+      console.warn("Fullscreen toggle exception, using fallback:", err);
+      setIsSimulatedFullscreen((prev) => !prev);
+      setIsFullscreen((prev) => !prev);
     }
-  }, []);
+  }, [isFullscreen, isSimulatedFullscreen]);
 
   const handleSelectDuration = (dur: GameDuration) => {
     setSelectedDuration(dur);
@@ -145,10 +184,12 @@ export default function App() {
     return "sd";
   });
 
-  const [activeEducationLevel, setActiveEducationLevel] = useState<EducationLevel>("sd");
+  const [activeEducationLevel, setActiveEducationLevel] = useState<EducationLevel>(selectedEducationLevel);
+  const activeEducationLevelRef = useRef<EducationLevel>(selectedEducationLevel);
 
   const handleSelectEducationLevel = (lvl: EducationLevel) => {
     setSelectedEducationLevel(lvl);
+    activeEducationLevelRef.current = lvl;
     try {
       localStorage.setItem("mb_preferred_education_level", lvl);
     } catch (e) {}
@@ -328,18 +369,19 @@ export default function App() {
   );
 
   const nextQuestion = useCallback(
-    (customStreak?: number) => {
+    (customStreak?: number, customEdu?: EducationLevel) => {
       const currentStreak = customStreak !== undefined ? customStreak : levelingStreak;
       const isHardChallenge = currentStreak >= 2;
       const diff = isHardChallenge
         ? "hard"
         : getDifficultyForProgress(timeRemaining, activeDuration, totalAnswered);
+      const eduToUse = customEdu || activeEducationLevelRef.current || activeEducationLevel || "sd";
       const q = MathGenerator.generateQuestion(
         category,
         diff,
         undefined,
         isHardChallenge,
-        activeEducationLevel,
+        eduToUse,
       );
       setCurrentQuestion(q);
       return q;
@@ -374,7 +416,8 @@ export default function App() {
       const matchDur = roomData?.duration || selectedDuration || 300;
       setActiveDuration(matchDur);
       setTimeRemaining(matchDur);
-      const eduLevel = roomData?.educationLevel || selectedEducationLevel || "sd";
+      const eduLevel = roomData?.educationLevel || activeEducationLevelRef.current || selectedEducationLevel || "sd";
+      activeEducationLevelRef.current = eduLevel;
       setActiveEducationLevel(eduLevel);
       setFinishReason("time_up");
       savedMatchRef.current = null;
@@ -575,6 +618,7 @@ export default function App() {
               startMatch({
                 roomId: targetRoomId,
                 initialQuestion: payload?.initialQuestion,
+                educationLevel: payload?.educationLevel || activeEducationLevelRef.current,
                 opponentName: payload?.senderName,
               });
             })
@@ -598,7 +642,14 @@ export default function App() {
       if (roomData?.initialQuestion) {
         setCurrentQuestion(roomData.initialQuestion);
       } else {
-        nextQuestion();
+        const initQ = MathGenerator.generateQuestion(
+          roomData?.category || category,
+          "easy",
+          undefined,
+          false,
+          eduLevel,
+        );
+        setCurrentQuestion(initQ);
       }
     },
     [
@@ -607,7 +658,8 @@ export default function App() {
       mode,
       aiDifficulty,
       playerName,
-      nextQuestion,
+      selectedDuration,
+      selectedEducationLevel,
       selectedSkinId,
       triggerScreenShake,
     ],
@@ -638,6 +690,7 @@ export default function App() {
     const edu = educationLevel || selectedEducationLevel || "sd";
     setSelectedEducationLevel(edu);
     setActiveEducationLevel(edu);
+    activeEducationLevelRef.current = edu;
 
     if (selectedMode === "quick_match" || selectedMode === "private_room") {
       setStage("matchmaking");
@@ -926,11 +979,13 @@ export default function App() {
       const nextDiff = isNextHardChallenge
         ? "hard"
         : getDifficultyForProgress(timeRemaining, activeDuration, newTotal);
+      const currentEdu = activeEducationLevelRef.current || activeEducationLevel || "sd";
       const nextQ = MathGenerator.generateQuestion(
         category,
         nextDiff,
         undefined,
         isNextHardChallenge,
+        currentEdu,
       );
 
       // ✅ Handle Instant Knockout Victory vs Normal Hit
@@ -1115,13 +1170,21 @@ export default function App() {
 
     if (rematchStatus === "requested_by_opponent") {
       // Lawan sudah mengajak rematch, kita setujui dan mulai pertandingan bersama (mulai dari pemanasan easy)
-      const firstQ = MathGenerator.generateQuestion(category, "easy");
+      const currentEdu = activeEducationLevelRef.current || activeEducationLevel || "sd";
+      const firstQ = MathGenerator.generateQuestion(
+        category,
+        "easy",
+        undefined,
+        false,
+        currentEdu,
+      );
       try {
         gameChannelRef.current.send({
           type: "broadcast",
           event: "GAME_REMATCH_START",
           payload: {
             initialQuestion: firstQ,
+            educationLevel: currentEdu,
             senderName: playerName || "Player 1",
           },
         });
@@ -1132,6 +1195,7 @@ export default function App() {
       startMatch({
         roomId: activeRoomId,
         initialQuestion: firstQ,
+        educationLevel: currentEdu,
       });
     } else {
       // Kita mengajak rematch ke lawan
@@ -1253,7 +1317,9 @@ export default function App() {
 
       {stage === "in_game" && currentQuestion && (
         <div
-          className={`w-full max-w-lg mx-auto h-[100dvh] max-h-[100dvh] flex flex-col justify-between p-1.5 sm:p-2.5 overflow-hidden select-none relative gap-1 sm:gap-1.5 transition-transform ${shakeClass}`}
+          className={`w-full max-w-lg mx-auto h-[100dvh] max-h-[100dvh] flex flex-col justify-between p-1.5 sm:p-2.5 safe-pt safe-pb safe-px overflow-hidden select-none relative gap-1 sm:gap-1.5 transition-transform ${shakeClass} ${
+            isFullscreen || isSimulatedFullscreen ? "fixed inset-0 z-50 bg-slate-950" : ""
+          }`}
         >
           {/* 1. Compact Arcade Combat Header */}
           <div className="bg-slate-900/95 border border-slate-800 rounded-xl px-2.5 py-1 sm:py-1.5 flex items-center justify-between shadow-lg shrink-0">

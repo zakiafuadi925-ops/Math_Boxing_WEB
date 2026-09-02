@@ -136,21 +136,32 @@ export const QuestionCard: React.FC<QuestionCardProps> = memo(({ question, level
           </span>
         )}
 
+        {/* Main Question Heading */}
         <h2
-          className={`font-arcade text-xl sm:text-2xl tracking-wide drop-shadow-md ${
-            isHardChallenge ? 'text-amber-300 text-2xl sm:text-3xl' : 'text-slate-100'
+          className={`font-arcade tracking-wide drop-shadow-md leading-tight ${
+            question.visualItem
+              ? 'text-sm sm:text-base text-slate-300 font-sans font-bold my-0.5'
+              : isHardChallenge
+              ? 'text-amber-300 text-lg sm:text-2xl'
+              : 'text-slate-100 text-lg sm:text-xl'
           }`}
         >
           {question.questionText}
         </h2>
 
-        {/* Visual Item Rendering for Counting Questions */}
+        {/* Visual Item Rendering for Counting Questions (Ultra-compact & auto-scaled) */}
         {question.visualItem && (
-          <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 max-w-[280px] p-1 bg-slate-900/80 rounded-lg border border-slate-800">
+          <div className="mt-1 flex flex-wrap items-center justify-center gap-1 max-w-[280px] p-1 bg-slate-900/90 rounded-lg border border-slate-800/80 max-h-[50px] overflow-hidden">
             {Array.from({ length: question.visualItem.count }).map((_, idx) => (
               <span
                 key={idx}
-                className="text-xl sm:text-2xl"
+                className={`leading-none select-none transition-transform ${
+                  question.visualItem!.count > 8
+                    ? 'text-base sm:text-lg'
+                    : question.visualItem!.count > 5
+                    ? 'text-lg sm:text-xl'
+                    : 'text-xl sm:text-2xl'
+                }`}
               >
                 {question.visualItem?.icon}
               </span>

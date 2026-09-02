@@ -719,15 +719,15 @@ export class MathGenerator {
     let sub = 'Hitung Cepat';
 
     if (difficulty === 'easy') {
-      count = Math.floor(Math.random() * 5) + 3; // 3..7
+      count = Math.floor(Math.random() * 4) + 3; // 3..6
       score = 2;
       sub = '🎒 SD • Hitung Objek Dasar';
     } else if (difficulty === 'medium') {
-      count = Math.floor(Math.random() * 6) + 8; // 8..13
+      count = Math.floor(Math.random() * 4) + 6; // 6..9
       score = 4;
       sub = '🎒 SD • Hitung Objek Sedang';
     } else {
-      count = Math.floor(Math.random() * 8) + 16; // 16..23
+      count = Math.floor(Math.random() * 4) + 9; // 9..12
       score = isHardChallenge ? 15 : 8;
       sub = '🎒 SD • Hitung Cepat Banyak Objek';
     }

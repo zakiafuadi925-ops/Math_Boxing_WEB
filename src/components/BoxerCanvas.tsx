@@ -301,7 +301,7 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
   }, []); // Run ONCE mounted, read state from refs for ultimate 60-120fps smoothness
 
   return (
-    <div className="relative w-full flex-1 min-h-[140px] max-h-[240px] sm:max-h-[300px] bg-slate-900 rounded-2xl overflow-hidden shadow-xl border border-slate-800 flex items-center justify-center gpu-accelerated">
+    <div className="relative w-full flex-1 min-h-[110px] sm:min-h-[140px] max-h-[220px] sm:max-h-[300px] bg-slate-900 rounded-xl sm:rounded-2xl overflow-hidden shadow-xl border border-slate-800 flex items-center justify-center gpu-accelerated">
       {/* Top Left P1 Arcade Health Bar HUD */}
       <div className="absolute top-1.5 left-2 sm:top-2.5 sm:left-3 z-30 pointer-events-none flex flex-col gap-0.5 w-24 sm:w-36 select-none">
         <div className="flex items-center justify-between text-[9px] sm:text-xs font-black uppercase tracking-wider text-slate-200">

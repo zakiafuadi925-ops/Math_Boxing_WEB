@@ -159,6 +159,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
           roomId: payload.roomId,
           duration: payload.duration || duration,
           category: payload.category || category,
+          educationLevel: payload.educationLevel || educationLevel,
           initialQuestion: payload.initialQuestion,
           opponentName: oppName,
           isBot: false,
@@ -265,7 +266,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
         supabase.removeChannel(channelRef.current);
       }
     };
-  }, [mode, roomCode, duration, category, playerName, selectedSkinId, onMatchFound]);
+  }, [mode, roomCode, duration, category, educationLevel, playerName, selectedSkinId, onMatchFound]);
 
   const handleCancel = () => {
     audio.playClick();
@@ -288,6 +289,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
         roomId: `bot_match_${Date.now()}`,
         duration,
         category,
+        educationLevel,
         opponentName: "Bot Juara AI",
         isBot: true,
       });
