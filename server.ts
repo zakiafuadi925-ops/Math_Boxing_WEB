@@ -347,26 +347,24 @@ app.post("/api/match-history", async (req, res) => {
     player_score,
     opponent_score,
     result,
+    category,
+    mode,
+    duration,
+    accuracy,
+    highest_combo,
+    total_answered,
+    correct_count,
+    wrong_count,
+    finish_reason,
   } = req.body;
 
   if (!player_name || !opponent_name) {
     return res.status(400).json({ success: false, error: "Missing required match parameters" });
   }
 
-  // Schema public.match_history:
-  // - id: uuid default gen_random_uuid()
-  // - room_id: varchar(32)
-  // - player_name: varchar(50)
-  // - opponent_name: varchar(50)
-  // - player_score: integer default 0
-  // - opponent_score: integer default 0
-  // - result: varchar(10)
-  // - created_at: timestamp with time zone default now()
-  // - user_id: uuid references auth.users(id)
-
   const cleanName = String(player_name).trim().substring(0, 50);
   const cleanOpponent = String(opponent_name).trim().substring(0, 50);
-  const cleanRoomId = room_id ? String(room_id).trim().substring(0, 32) : null;
+  const cleanRoomId = room_id ? String(room_id).trim().substring(0, 64) : null;
   const cleanResult = String(result || "win").trim().substring(0, 10);
   const validUid = isValidUuid(user_id) ? user_id.trim() : null;
 
@@ -377,6 +375,15 @@ app.post("/api/match-history", async (req, res) => {
       player_score: Number(player_score) || 0,
       opponent_score: Number(opponent_score) || 0,
       result: cleanResult,
+      category: category ? String(category).substring(0, 30) : "all",
+      mode: mode ? String(mode).substring(0, 30) : "quick_match",
+      duration: Number(duration) || 300,
+      accuracy: Number(accuracy) || 100,
+      highest_combo: Number(highest_combo) || 0,
+      total_answered: Number(total_answered) || 0,
+      correct_count: Number(correct_count) || 0,
+      wrong_count: Number(wrong_count) || 0,
+      finish_reason: finish_reason ? String(finish_reason).substring(0, 20) : "time_up",
       created_at: new Date().toISOString(),
     };
     if (cleanRoomId) payload.room_id = cleanRoomId;
@@ -442,19 +449,26 @@ app.post("/api/profiles", async (req, res) => {
     return res.status(200).json({ success: true });
   }
 
-  const { id, username, avatar_url } = req.body;
-  if (!id || !username || !isValidUuid(id)) {
-    return res.status(400).json({ success: false, error: "Valid UUID id and username are required" });
+  const { id, username, avatar_url, selected_skin, total_score, wins, matches_played, highest_combo } = req.body;
+  if (!id || !isValidUuid(id)) {
+    return res.status(400).json({ success: false, error: "Valid UUID id is required" });
   }
 
   try {
+    const payload: any = {
+      id,
+      updated_at: new Date().toISOString(),
+    };
+    if (username) payload.username = String(username).trim();
+    if (avatar_url !== undefined) payload.avatar_url = avatar_url || "";
+    if (selected_skin) payload.selected_skin = selected_skin;
+    if (total_score !== undefined) payload.total_score = Number(total_score) || 0;
+    if (wins !== undefined) payload.wins = Number(wins) || 0;
+    if (matches_played !== undefined) payload.matches_played = Number(matches_played) || 0;
+    if (highest_combo !== undefined) payload.highest_combo = Number(highest_combo) || 0;
+
     const { error } = await supabaseServer.from("profiles").upsert(
-      {
-        id,
-        username: String(username).trim(),
-        avatar_url: avatar_url || "",
-        updated_at: new Date().toISOString(),
-      },
+      payload,
       { onConflict: "id" }
     );
 

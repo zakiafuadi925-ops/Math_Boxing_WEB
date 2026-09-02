@@ -7,6 +7,33 @@ export function isValidUuid(val?: string | null): boolean {
   return typeof val === "string" && UUID_REGEX.test(val.trim());
 }
 
+// Generate valid RFC4122 v4 UUID
+export function generateUuidV4(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// Persistent Guest UUID helper (Ensures even guest players maintain a single permanent UUID)
+export function getPersistentGuestUuid(): string {
+  try {
+    const stored = localStorage.getItem("mb_persistent_guest_uuid");
+    if (stored && isValidUuid(stored)) {
+      return stored;
+    }
+    const newUuid = generateUuidV4();
+    localStorage.setItem("mb_persistent_guest_uuid", newUuid);
+    return newUuid;
+  } catch {
+    return generateUuidV4();
+  }
+}
+
 // Client-side fallback configuration supporting multiple env prefixes
 const supabaseUrl =
   (import.meta as any).env?.VITE_SUPABASE_URL ||
@@ -282,11 +309,19 @@ export interface PlayerProfile {
   avatar_url?: string;
   photoURL?: string;
   high_score?: number;
+  total_score?: number;
+  wins?: number;
+  matches_played?: number;
+  highest_combo?: number;
+  selected_skin?: string;
+  unlocked_skins?: string[];
+  is_guest?: boolean;
 }
 
 // Tipe Data Leaderboard Entry
 export interface LeaderboardEntry {
   id: string;
+  user_id?: string;
   rank?: number;
   name: string;
   avatar: string;
@@ -302,7 +337,7 @@ export interface LeaderboardEntry {
   updatedAt?: string;
 }
 
-// Helper Login Google
+// Helper Login Google OAuth
 export const signInWithGoogle = async (): Promise<PlayerProfile | null> => {
   try {
     const { error } = await supabase.auth.signInWithOAuth({
@@ -315,8 +350,117 @@ export const signInWithGoogle = async (): Promise<PlayerProfile | null> => {
     if (error) throw error;
   } catch (err) {
     console.warn("OAuth sign-in fallback handled:", err);
+    throw err;
   }
   return null;
+};
+
+// Helper Login dengan Email & Password
+export const signInWithEmail = async (
+  email: string,
+  pass: string
+): Promise<PlayerProfile | null> => {
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: pass,
+    });
+
+    if (error) throw error;
+    if (data.user) {
+      return await getCurrentUserProfile();
+    }
+    return null;
+  } catch (err: any) {
+    console.error("Email sign-in error:", err);
+    throw err;
+  }
+};
+
+// Helper Daftar Akun Baru dengan Email & Password
+export const signUpWithEmail = async (
+  email: string,
+  pass: string,
+  displayName?: string
+): Promise<PlayerProfile | null> => {
+  try {
+    const cleanName = displayName?.trim() || email.split("@")[0] || "Petinju";
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password: pass,
+      options: {
+        data: {
+          full_name: cleanName,
+          name: cleanName,
+        },
+      },
+    });
+
+    if (error) throw error;
+    if (data.user) {
+      // Inisialisasi profil di database
+      try {
+        await supabase.from("profiles").upsert(
+          {
+            id: data.user.id,
+            username: cleanName,
+            avatar_url: "",
+            total_score: 0,
+            wins: 0,
+            matches_played: 0,
+            highest_combo: 0,
+            selected_skin: "boxer_default",
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "id" }
+        );
+      } catch (e) {
+        console.warn("Profile initial bootstrap notice:", e);
+      }
+      return await getCurrentUserProfile();
+    }
+    return null;
+  } catch (err: any) {
+    console.error("Email sign-up error:", err);
+    throw err;
+  }
+};
+
+// Helper untuk memperbarui profil pemain
+export const updatePlayerProfile = async (
+  userId: string,
+  updates: Partial<PlayerProfile>
+): Promise<boolean> => {
+  if (!isValidUuid(userId)) return false;
+
+  const payload: any = {
+    updated_at: new Date().toISOString(),
+  };
+  if (updates.name || updates.displayName) payload.username = (updates.name || updates.displayName)!.trim();
+  if (updates.avatar_url !== undefined) payload.avatar_url = updates.avatar_url;
+  if (updates.selected_skin) payload.selected_skin = updates.selected_skin;
+  if (updates.total_score !== undefined) payload.total_score = updates.total_score;
+  if (updates.wins !== undefined) payload.wins = updates.wins;
+  if (updates.matches_played !== undefined) payload.matches_played = updates.matches_played;
+  if (updates.highest_combo !== undefined) payload.highest_combo = updates.highest_combo;
+
+  try {
+    // 1. Kirim ke backend API
+    await fetch("/api/profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: userId, ...payload }),
+    });
+
+    // 2. Direct Supabase update
+    if (isConfigured && supabase) {
+      await supabase.from("profiles").update(payload).eq("id", userId);
+    }
+    return true;
+  } catch (err) {
+    console.warn("Update profile error:", err);
+    return false;
+  }
 };
 
 // Helper untuk mengambil Profil User Aktif
@@ -328,13 +472,22 @@ export const getCurrentUserProfile = async (): Promise<PlayerProfile | null> => 
 
     if (!user) return null;
 
-    const name = user.user_metadata?.full_name || user.email?.split("@")[0] || "Petinju";
-    const avatar = user.user_metadata?.avatar_url || "";
+    const name =
+      user.user_metadata?.full_name ||
+      user.user_metadata?.name ||
+      user.email?.split("@")[0] ||
+      "Petinju";
+    const avatar =
+      user.user_metadata?.avatar_url ||
+      user.user_metadata?.picture ||
+      "";
 
     let highScore = 0;
     let wins = 0;
     let matchesPlayed = 0;
     let highestCombo = 0;
+    let selectedSkin = "boxer_default";
+    let unlockedSkins = ["boxer_default"];
 
     // Ambil data profil dari public.profiles
     if (isConfigured) {
@@ -350,6 +503,10 @@ export const getCurrentUserProfile = async (): Promise<PlayerProfile | null> => 
           wins = prof.wins || 0;
           matchesPlayed = prof.matches_played || 0;
           highestCombo = prof.highest_combo || 0;
+          selectedSkin = prof.selected_skin || "boxer_default";
+          if (Array.isArray(prof.unlocked_skins)) {
+            unlockedSkins = prof.unlocked_skins;
+          }
         } else {
           // Inisialisasi awal profil jika belum ada
           await supabase.from("profiles").upsert(
@@ -361,6 +518,8 @@ export const getCurrentUserProfile = async (): Promise<PlayerProfile | null> => 
               wins: 0,
               matches_played: 0,
               highest_combo: 0,
+              selected_skin: "boxer_default",
+              unlocked_skins: ["boxer_default"],
               updated_at: new Date().toISOString(),
             },
             { onConflict: "id" }
@@ -380,6 +539,13 @@ export const getCurrentUserProfile = async (): Promise<PlayerProfile | null> => 
       avatar_url: avatar,
       photoURL: avatar,
       high_score: highScore,
+      total_score: highScore,
+      wins,
+      matches_played: matchesPlayed,
+      highest_combo: highestCombo,
+      selected_skin: selectedSkin,
+      unlocked_skins: unlockedSkins,
+      is_guest: false,
     };
   } catch (e) {
     console.warn("Failed to get current user profile:", e);
@@ -729,7 +895,7 @@ export const saveMatchScoreToLeaderboard = async ({
 }) => {
   const name = playerName.trim() || "Pemain Kamu";
   const badge = calculateBadge(newLifetimeScore);
-  const validUid = isValidUuid(userId) ? userId?.trim() : undefined;
+  const validUid = isValidUuid(userId) ? userId?.trim() : getPersistentGuestUuid();
 
   // 1. Simpan ke Backend Server API (/api/leaderboard & /api/match-history)
   try {
