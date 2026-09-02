@@ -1,6 +1,6 @@
 import React, { memo } from 'react';
-import { MathQuestion } from '../types';
-import { Sparkles, Trophy, Flame, Zap, Star, ShieldAlert } from 'lucide-react';
+import { MathQuestion, EducationLevel } from '../types';
+import { Sparkles, Trophy, Flame, Zap, Star, ShieldAlert, GraduationCap } from 'lucide-react';
 
 interface QuestionCardProps {
   question: MathQuestion;
@@ -9,6 +9,48 @@ interface QuestionCardProps {
 
 export const QuestionCard: React.FC<QuestionCardProps> = memo(({ question, levelingStreak = 0 }) => {
   const isHardChallenge = Boolean(question.isHardChallenge || question.difficulty === 'hard');
+
+  const getEducationBadge = (edu?: EducationLevel) => {
+    switch (edu) {
+      case 'paud':
+        return (
+          <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-pink-950/90 text-pink-300 border border-pink-500/50 flex items-center gap-1 uppercase tracking-wider">
+            🐣 PAUD
+          </span>
+        );
+      case 'tk':
+        return (
+          <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-orange-950/90 text-orange-300 border border-orange-500/50 flex items-center gap-1 uppercase tracking-wider">
+            🎈 TK
+          </span>
+        );
+      case 'smp':
+        return (
+          <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-500/50 flex items-center gap-1 uppercase tracking-wider">
+            📐 SMP
+          </span>
+        );
+      case 'sma':
+        return (
+          <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-sky-950/90 text-sky-300 border border-sky-500/50 flex items-center gap-1 uppercase tracking-wider">
+            🔬 SMA
+          </span>
+        );
+      case 'kuliah':
+        return (
+          <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-purple-950/90 text-purple-300 border border-purple-500/50 flex items-center gap-1 uppercase tracking-wider shadow-[0_0_8px_rgba(168,85,247,0.4)]">
+            <GraduationCap className="w-2.5 h-2.5" /> KULIAH
+          </span>
+        );
+      case 'sd':
+      default:
+        return (
+          <span className="text-[9px] sm:text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-950/90 text-amber-300 border border-amber-500/50 flex items-center gap-1 uppercase tracking-wider">
+            🎒 SD
+          </span>
+        );
+    }
+  };
 
   const getCategoryLabel = (category: string) => {
     switch (category) {
@@ -54,7 +96,8 @@ export const QuestionCard: React.FC<QuestionCardProps> = memo(({ question, level
     >
       {/* Top Header Row */}
       <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {getEducationBadge(question.educationLevel)}
           <span className="text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700 uppercase tracking-wider flex items-center gap-1">
             <Sparkles className="w-3 h-3" />
             {getCategoryLabel(question.category)}

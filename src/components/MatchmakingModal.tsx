@@ -11,18 +11,21 @@ import {
   Sparkles,
   Users,
   Shield,
+  GraduationCap,
 } from "lucide-react";
-import { GameMode, GameDuration, QuestionCategory, MathQuestion } from "../types";
+import { GameMode, GameDuration, QuestionCategory, MathQuestion, EducationLevel } from "../types";
 import { supabase, syncRoomState } from "../lib/supabase";
 import { RealtimeChannel } from "@supabase/supabase-js";
 import { audio } from "../utils/audio";
 import { MathGenerator } from "../utils/mathGenerator";
+import { getEducationLevelConfig } from "../utils/educationLevels";
 
 interface MatchmakingModalProps {
   mode: GameMode;
   roomCode?: string;
   duration?: GameDuration;
   category?: QuestionCategory;
+  educationLevel?: EducationLevel;
   playerName?: string;
   userId?: string;
   selectedSkinId?: string;
@@ -31,6 +34,7 @@ interface MatchmakingModalProps {
     roomId: string;
     duration?: GameDuration;
     category?: QuestionCategory;
+    educationLevel?: EducationLevel;
     initialQuestion?: MathQuestion;
     opponentName?: string;
     isBot?: boolean;
@@ -43,6 +47,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
   roomCode,
   duration = 300,
   category = "all",
+  educationLevel = "sd",
   playerName = "Pemain 1",
   userId,
   selectedSkinId,
@@ -72,6 +77,8 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
     300: { label: "5 Menit", desc: "⭐ Standar (Rekomendasi Anak)", icon: "⭐" },
     600: { label: "10 Menit", desc: "🏆 Marathon Fokus", icon: "🏆" },
   };
+
+  const eduConfig = getEducationLevelConfig(educationLevel);
 
   useEffect(() => {
     hasMatchedRef.current = false;
@@ -184,7 +191,14 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
             mode === "private_room" && normalizedRoomCode
               ? `private_${normalizedRoomCode}_${Date.now()}`
               : `match_${Date.now()}_${myId.substring(2, 6)}_${otherKey.substring(2, 6)}`;
-          const firstQuestion = MathGenerator.generateQuestion(category, "easy");
+          const chosenEdu = otherPlayerData?.educationLevel || educationLevel;
+          const firstQuestion = MathGenerator.generateQuestion(
+            category,
+            "easy",
+            undefined,
+            false,
+            chosenEdu
+          );
 
           const matchPayload = {
             roomId: dedicatedRoomId,
@@ -194,6 +208,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
             guestName: otherPlayerName,
             duration: otherPlayerData?.duration || duration,
             category: category !== "all" ? category : (otherPlayerData?.category || "all"),
+            educationLevel: chosenEdu,
             initialQuestion: firstQuestion,
           };
 
@@ -225,6 +240,7 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
             playerName: playerName || "Pemain 1",
             duration,
             category,
+            educationLevel,
             selectedSkinId,
             joinedAt: Date.now(),
           });
@@ -317,6 +333,10 @@ export const MatchmakingModal: React.FC<MatchmakingModalProps> = ({
 
               {/* Match Duration & Settings Pill */}
               <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+                <span className={`px-2.5 py-0.5 rounded-full border text-[11px] font-bold flex items-center gap-1 ${eduConfig.bgLight} ${eduConfig.borderActive}`}>
+                  <span>{eduConfig.icon}</span>
+                  <span>{eduConfig.label} ({eduConfig.name})</span>
+                </span>
                 <span className="px-2.5 py-0.5 rounded-full bg-slate-950 border border-slate-800 text-[11px] font-bold text-amber-300 flex items-center gap-1">
                   <Timer className="w-3 h-3 text-amber-400" />
                   {durationLabels[duration]?.label || "5 Menit"}

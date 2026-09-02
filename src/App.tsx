@@ -9,6 +9,7 @@ import {
   AnswerHistoryPoint,
   GameDuration,
   QuestionDifficulty,
+  EducationLevel,
 } from "./types";
 import { MathGenerator } from "./utils/mathGenerator";
 import { audio } from "./utils/audio";
@@ -130,6 +131,26 @@ export default function App() {
     setSelectedDuration(dur);
     try {
       localStorage.setItem("mb_preferred_duration", dur.toString());
+    } catch (e) {}
+  };
+
+  // Education Level Preference (Default to SD)
+  const [selectedEducationLevel, setSelectedEducationLevel] = useState<EducationLevel>(() => {
+    try {
+      const saved = localStorage.getItem("mb_preferred_education_level");
+      if (saved && ["paud", "tk", "sd", "smp", "sma", "kuliah"].includes(saved)) {
+        return saved as EducationLevel;
+      }
+    } catch (e) {}
+    return "sd";
+  });
+
+  const [activeEducationLevel, setActiveEducationLevel] = useState<EducationLevel>("sd");
+
+  const handleSelectEducationLevel = (lvl: EducationLevel) => {
+    setSelectedEducationLevel(lvl);
+    try {
+      localStorage.setItem("mb_preferred_education_level", lvl);
     } catch (e) {}
   };
 
@@ -318,6 +339,7 @@ export default function App() {
         diff,
         undefined,
         isHardChallenge,
+        activeEducationLevel,
       );
       setCurrentQuestion(q);
       return q;
@@ -329,6 +351,7 @@ export default function App() {
       activeDuration,
       totalAnswered,
       levelingStreak,
+      activeEducationLevel,
     ],
   );
 
@@ -340,6 +363,7 @@ export default function App() {
       opponentName?: string;
       duration?: GameDuration;
       category?: QuestionCategory;
+      educationLevel?: EducationLevel;
       isBot?: boolean;
     }) => {
       console.log("--> startMatch dipanggil dengan roomData:", roomData);
@@ -350,6 +374,8 @@ export default function App() {
       const matchDur = roomData?.duration || selectedDuration || 300;
       setActiveDuration(matchDur);
       setTimeRemaining(matchDur);
+      const eduLevel = roomData?.educationLevel || selectedEducationLevel || "sd";
+      setActiveEducationLevel(eduLevel);
       setFinishReason("time_up");
       savedMatchRef.current = null;
 
@@ -593,6 +619,7 @@ export default function App() {
     diff?: "easy" | "normal" | "hard",
     code?: string,
     duration?: GameDuration,
+    educationLevel?: EducationLevel,
   ) => {
     console.log("🎮 Start Game dipanggil:", {
       selectedMode,
@@ -600,6 +627,7 @@ export default function App() {
       diff,
       code,
       duration,
+      educationLevel,
     });
     setMode(selectedMode);
     setCategory(selectedCat);
@@ -607,11 +635,14 @@ export default function App() {
     if (code) setRoomCode(code);
     const dur = duration || selectedDuration;
     setSelectedDuration(dur);
+    const edu = educationLevel || selectedEducationLevel || "sd";
+    setSelectedEducationLevel(edu);
+    setActiveEducationLevel(edu);
 
     if (selectedMode === "quick_match" || selectedMode === "private_room") {
       setStage("matchmaking");
     } else {
-      startMatch({ duration: dur });
+      startMatch({ duration: dur, educationLevel: edu });
     }
   };
 
@@ -1147,6 +1178,8 @@ export default function App() {
           onSelectCategory={setCategory}
           selectedDuration={selectedDuration}
           onSelectDuration={handleSelectDuration}
+          selectedEducationLevel={selectedEducationLevel}
+          onSelectEducationLevel={handleSelectEducationLevel}
           playerName={playerName}
           onUpdatePlayerName={setPlayerName}
           lifetimeScore={lifetimeScore}
@@ -1195,6 +1228,7 @@ export default function App() {
           roomCode={roomCode}
           category={category}
           duration={selectedDuration}
+          educationLevel={selectedEducationLevel}
           playerName={playerName}
           userId={currentUser?.uid || (currentUser as any)?.id}
           selectedSkinId={selectedSkinId}
@@ -1209,6 +1243,7 @@ export default function App() {
             setMode("practice");
             startMatch({
               duration: selectedDuration,
+              educationLevel: selectedEducationLevel,
               opponentName: "Bot Juara AI",
               isBot: true,
             });

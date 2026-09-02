@@ -7,6 +7,8 @@ export type QuestionCategory =
   | "geometry"
   | "all";
 
+export type EducationLevel = "paud" | "tk" | "sd" | "smp" | "sma" | "kuliah";
+
 export type QuestionDifficulty = "easy" | "medium" | "hard";
 
 export type GameDuration = 60 | 300 | 600; // in seconds: 1 min, 5 min, 10 min
@@ -14,6 +16,7 @@ export type GameDuration = 60 | 300 | 600; // in seconds: 1 min, 5 min, 10 min
 export interface MathQuestion {
   id: string;
   category: QuestionCategory;
+  educationLevel?: EducationLevel;
   questionText: string;
   correctAnswer: number;
   scoreValue: number;

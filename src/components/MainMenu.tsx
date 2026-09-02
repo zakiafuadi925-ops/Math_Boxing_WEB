@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Flame,
   Award,
+  GraduationCap,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -42,9 +43,10 @@ import {
   Bar,
   Cell,
 } from "recharts";
-import { GameMode, QuestionCategory, MatchRecord, GameDuration } from "../types";
+import { GameMode, QuestionCategory, MatchRecord, GameDuration, EducationLevel } from "../types";
 import { audio } from "../utils/audio";
 import { BOXER_SKINS, BoxerSkin } from "../utils/skins";
+import { EDUCATION_LEVELS, getEducationLevelConfig } from "../utils/educationLevels";
 import { DailyChallengeModal } from "./DailyChallengeModal";
 import {
   loadDailyChallengeState,
@@ -74,11 +76,14 @@ interface MainMenuProps {
     aiDiff?: "easy" | "normal" | "hard",
     roomCode?: string,
     duration?: GameDuration,
+    educationLevel?: EducationLevel,
   ) => void;
   selectedCategory: QuestionCategory;
   onSelectCategory: (cat: QuestionCategory) => void;
   selectedDuration: GameDuration;
   onSelectDuration: (duration: GameDuration) => void;
+  selectedEducationLevel?: EducationLevel;
+  onSelectEducationLevel?: (level: EducationLevel) => void;
   playerName: string;
   onUpdatePlayerName: (name: string) => void;
   lifetimeScore: number;
@@ -99,6 +104,8 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   onSelectCategory,
   selectedDuration,
   onSelectDuration,
+  selectedEducationLevel = "sd",
+  onSelectEducationLevel = () => {},
   playerName,
   onUpdatePlayerName,
   lifetimeScore,
@@ -128,6 +135,10 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   }, [lifetimeScore]);
 
   const currentTier = rankProgress.currentTier;
+
+  const currentEduConfig = useMemo(() => {
+    return getEducationLevelConfig(selectedEducationLevel);
+  }, [selectedEducationLevel]);
 
   const [dailyState, setDailyState] = useState<DailyChallengeState>(() =>
     loadDailyChallengeState(),
@@ -923,7 +934,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
           <button
             onClick={() => {
               audio.playClick();
-              onStartGame("quick_match", selectedCategory, undefined, undefined, selectedDuration);
+              onStartGame("quick_match", selectedCategory, undefined, undefined, selectedDuration, selectedEducationLevel);
             }}
             className="w-full p-4 bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 active:scale-[0.98] border-b-4 border-amber-700 rounded-2xl text-slate-950 flex items-center justify-between shadow-xl transition-all group"
           >
@@ -932,16 +943,19 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <Swords className="w-7 h-7 text-slate-950 group-hover:scale-110 transition" />
               </div>
               <div className="text-left">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-arcade text-xl font-black block">
                     QUICK MATCH ONLINE
                   </span>
                   <span className="text-[10px] font-bold bg-slate-950/80 text-amber-300 px-2 py-0.5 rounded-full font-mono">
                     {selectedDuration === 60 ? "1 Menit" : selectedDuration === 300 ? "5 Menit" : "10 Menit"}
                   </span>
+                  <span className="text-[10px] font-bold bg-slate-950/90 text-yellow-300 px-2 py-0.5 rounded-full uppercase border border-amber-300/40">
+                    {currentEduConfig.icon} {currentEduConfig.label}
+                  </span>
                 </div>
                 <span className="text-xs font-bold text-slate-800">
-                  Cari lawan cepat & adu speed math 1v1!
+                  Cari lawan cepat & adu speed math tingkat {currentEduConfig.label}!
                 </span>
               </div>
             </div>
@@ -958,16 +972,19 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                   <Bot className="w-6 h-6 text-blue-400" />
                 </div>
                 <div className="text-left">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-arcade text-lg text-slate-100 block">
                       LATIHAN VS AI BOT
                     </span>
                     <span className="text-[10px] font-bold bg-slate-950 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30 font-mono">
                       {selectedDuration === 60 ? "1 Min" : selectedDuration === 300 ? "5 Min" : "10 Min"}
                     </span>
+                    <span className="text-[10px] font-bold bg-slate-950 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30 uppercase">
+                      {currentEduConfig.icon} {currentEduConfig.label}
+                    </span>
                   </div>
                   <span className="text-xs text-slate-400">
-                    Asah refleks hitung tanpa koneksi lawan
+                    Asah refleks hitung level {currentEduConfig.name} tanpa koneksi lawan
                   </span>
                 </div>
               </div>
@@ -975,7 +992,7 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               <button
                 onClick={() => {
                   audio.playClick();
-                  onStartGame("practice", selectedCategory, aiDifficulty, undefined, selectedDuration);
+                  onStartGame("practice", selectedCategory, aiDifficulty, undefined, selectedDuration, selectedEducationLevel);
                 }}
                 className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-arcade rounded-xl text-sm transition"
               >
@@ -1017,9 +1034,14 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <Users className="w-6 h-6 text-purple-400" />
               </div>
               <div className="text-left">
-                <span className="font-arcade text-lg text-slate-100 block">
-                  PRIVATE ROOM
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-arcade text-lg text-slate-100 block">
+                    PRIVATE ROOM
+                  </span>
+                  <span className="text-[10px] font-bold bg-slate-950 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30 uppercase">
+                    {currentEduConfig.icon} {currentEduConfig.label}
+                  </span>
+                </div>
                 <span className="text-xs text-slate-400">
                   Main bareng teman via Kode Kamar
                 </span>
@@ -1029,6 +1051,92 @@ export const MainMenu: React.FC<MainMenuProps> = ({
               CODE ROOM
             </span>
           </button>
+
+          {/* Educational Level Selection Card */}
+          <div className="w-full bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4 my-2 shadow-lg">
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                <GraduationCap className="w-4 h-4 text-amber-400" />
+                PILIH LEVEL KEMAMPUAN / TINGKAT PENDIDIKAN:
+              </h3>
+              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${currentEduConfig.bgLight} ${currentEduConfig.borderActive}`}>
+                {currentEduConfig.icon} {currentEduConfig.label} ({currentEduConfig.ageRange})
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+              {EDUCATION_LEVELS.map((lvl) => {
+                const isSelected = selectedEducationLevel === lvl.id;
+                return (
+                  <button
+                    key={lvl.id}
+                    type="button"
+                    onClick={() => {
+                      audio.playClick();
+                      onSelectEducationLevel(lvl.id);
+                    }}
+                    className={`p-3 rounded-2xl border-2 text-left transition relative flex flex-col justify-between overflow-hidden group ${
+                      isSelected
+                        ? `bg-gradient-to-br ${lvl.gradient} ${lvl.borderActive} shadow-lg scale-[1.02]`
+                        : "bg-slate-950/80 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between w-full mb-1">
+                      <span className="text-2xl">{lvl.icon}</span>
+                      <span
+                        className={`text-[8px] font-bold px-1.5 py-0.5 rounded-md uppercase ${
+                          isSelected
+                            ? "bg-slate-950/90 border border-current text-amber-300"
+                            : "bg-slate-900 text-slate-500"
+                        }`}
+                      >
+                        {lvl.badge}
+                      </span>
+                    </div>
+                    <div>
+                      <span className={`font-arcade text-base font-black block ${isSelected ? "text-amber-300" : "text-slate-200"}`}>
+                        {lvl.label}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block font-medium leading-tight mt-0.5 line-clamp-2">
+                        {lvl.shortDesc}
+                      </span>
+                    </div>
+
+                    <div className="mt-2 pt-1.5 border-t border-slate-800/60 flex items-center justify-between text-[9px] text-slate-500">
+                      <span className="font-mono">{lvl.ageRange}</span>
+                      {isSelected && <span className="text-amber-400 font-bold">✓ AKTIF</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active Level Preview Box with Sample Questions */}
+            <div className="mt-3 p-3 bg-slate-950/80 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">{currentEduConfig.icon}</span>
+                <div>
+                  <span className="font-bold text-slate-200 block text-xs sm:text-sm">
+                    {currentEduConfig.name} <span className="text-slate-400 text-xs font-normal">({currentEduConfig.ageRange})</span>
+                  </span>
+                  <span className="text-[11px] text-slate-400">
+                    Materi: {currentEduConfig.shortDesc}
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] text-slate-500 font-mono">Contoh Soal:</span>
+                {currentEduConfig.sampleQuestions.map((q, idx) => (
+                  <span
+                    key={idx}
+                    className="text-[10px] font-mono font-bold px-2 py-0.5 bg-slate-900 text-amber-300 rounded-md border border-slate-800"
+                  >
+                    {q}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
 
           {/* Duration Selector Card */}
           <div className="w-full bg-slate-900/90 border-2 border-slate-800 rounded-2xl p-4 my-2 shadow-lg">
