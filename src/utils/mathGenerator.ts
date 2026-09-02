@@ -6,8 +6,11 @@ export class MathGenerator {
   public static generateQuestion(
     category: QuestionCategory = 'all',
     difficulty: QuestionDifficulty = 'easy',
-    seed?: number
+    seed?: number,
+    isHardChallenge?: boolean
   ): MathQuestion {
+    const effectiveDifficulty: QuestionDifficulty = isHardChallenge ? 'hard' : difficulty;
+
     let chosenCategory = category;
     if (category === 'all') {
       const categories: QuestionCategory[] = [
@@ -26,27 +29,46 @@ export class MathGenerator {
     }
 
     const id = `q_${this.questionIdCounter++}_${Date.now()}`;
+    let question: MathQuestion;
 
     switch (chosenCategory) {
       case 'counting':
-        return this.generateCounting(id, difficulty);
+        question = this.generateCounting(id, effectiveDifficulty, isHardChallenge);
+        break;
       case 'algebra':
-        return this.generateAlgebra(id, difficulty);
+        question = this.generateAlgebra(id, effectiveDifficulty, isHardChallenge);
+        break;
       case 'roots':
-        return this.generateRoots(id, difficulty);
+        question = this.generateRoots(id, effectiveDifficulty, isHardChallenge);
+        break;
       case 'physics':
-        return this.generatePhysics(id, difficulty);
+        question = this.generatePhysics(id, effectiveDifficulty, isHardChallenge);
+        break;
       case 'geometry':
-        return this.generateGeometry(id, difficulty);
+        question = this.generateGeometry(id, effectiveDifficulty, isHardChallenge);
+        break;
       case 'arithmetic':
       default:
-        return this.generateArithmetic(id, difficulty);
+        question = this.generateArithmetic(id, effectiveDifficulty, isHardChallenge);
+        break;
     }
+
+    if (isHardChallenge) {
+      question.isHardChallenge = true;
+      // Berikan skor ekstra tinggi untuk soal sulit tantangan 2-streak!
+      question.scoreValue = Math.max(15, question.scoreValue * 2);
+      if (!question.subText?.startsWith('🔥')) {
+        question.subText = `🔥 SOAL SULIT (${question.subText || 'SUPER POIN'})`;
+      }
+    }
+
+    return question;
   }
 
   private static generateArithmetic(
     id: string,
-    difficulty: QuestionDifficulty
+    difficulty: QuestionDifficulty,
+    isHardChallenge?: boolean
   ): MathQuestion {
     const opType = Math.floor(Math.random() * 4); // 0: +, 1: -, 2: *, 3: /
     let text = '';
@@ -121,35 +143,35 @@ export class MathGenerator {
         sub = 'Pembagian Menengah';
       }
     } else {
-      // 🔥 TINGKAT SULIT: Angka besar, kombinasi, dan perkalian belasan
+      // 🔥 TINGKAT SULIT: Angka besar, perkalian belasan / 2 digit
       if (opType === 0) {
-        const n1 = Math.floor(Math.random() * 90) + 55;
-        const n2 = Math.floor(Math.random() * 80) + 45;
+        const n1 = Math.floor(Math.random() * 95) + 65;
+        const n2 = Math.floor(Math.random() * 95) + 55;
         text = `${n1} + ${n2} = ?`;
         answer = n1 + n2;
-        score = 7;
-        sub = 'Penjumlahan Besar';
+        score = isHardChallenge ? 16 : 8;
+        sub = '🔥 Penjumlahan Angka Besar';
       } else if (opType === 1) {
-        const n1 = Math.floor(Math.random() * 120) + 90;
-        const n2 = Math.floor(Math.random() * 70) + 35;
+        const n1 = Math.floor(Math.random() * 150) + 110;
+        const n2 = Math.floor(Math.random() * 80) + 45;
         text = `${n1} - ${n2} = ?`;
         answer = n1 - n2;
-        score = 7;
-        sub = 'Pengurangan Tingkat Lanjut';
+        score = isHardChallenge ? 16 : 8;
+        sub = '🔥 Pengurangan Tingkat Lanjut';
       } else if (opType === 2) {
-        const n1 = Math.floor(Math.random() * 8) + 11; // 11..18
-        const n2 = Math.floor(Math.random() * 8) + 4; // 4..11
+        const n1 = Math.floor(Math.random() * 8) + 12; // 12..19
+        const n2 = Math.floor(Math.random() * 9) + 6; // 6..14
         text = `${n1} × ${n2} = ?`;
         answer = n1 * n2;
-        score = 9;
-        sub = 'Perkalian Belasan';
+        score = isHardChallenge ? 18 : 10;
+        sub = '🔥 Perkalian Belasan Lanjut';
       } else {
-        answer = Math.floor(Math.random() * 14) + 8; // 8..21
-        const n2 = Math.floor(Math.random() * 8) + 6; // 6..13
+        answer = Math.floor(Math.random() * 15) + 11; // 11..25
+        const n2 = Math.floor(Math.random() * 8) + 7; // 7..14
         const n1 = answer * n2;
         text = `${n1} ÷ ${n2} = ?`;
-        score = 9;
-        sub = 'Pembagian Tingkat Lanjut';
+        score = isHardChallenge ? 18 : 10;
+        sub = '🔥 Pembagian Angka Besar';
       }
     }
 
@@ -166,7 +188,8 @@ export class MathGenerator {
 
   private static generateCounting(
     id: string,
-    difficulty: QuestionDifficulty
+    difficulty: QuestionDifficulty,
+    isHardChallenge?: boolean
   ): MathQuestion {
     const icons = ['🍎', '🥊', '⭐', '🍌', '🏆', '⚽', '💎', '🔥'];
     const selectedIcon = icons[Math.floor(Math.random() * icons.length)];
@@ -183,9 +206,9 @@ export class MathGenerator {
       score = 4;
       sub = 'Hitung Objek Sedang';
     } else {
-      count = Math.floor(Math.random() * 7) + 14; // 14..20
-      score = 6;
-      sub = 'Hitung Cepat Fokus Tinggi';
+      count = Math.floor(Math.random() * 8) + 16; // 16..23
+      score = isHardChallenge ? 15 : 8;
+      sub = '🔥 Hitung Cepat Fokus Ekstrem';
     }
 
     return {
@@ -205,10 +228,10 @@ export class MathGenerator {
 
   private static generateAlgebra(
     id: string,
-    difficulty: QuestionDifficulty
+    difficulty: QuestionDifficulty,
+    isHardChallenge?: boolean
   ): MathQuestion {
     if (difficulty === 'easy') {
-      // Persamaan satu langkah (x + a = b atau ax = b)
       const isLinear = Math.random() > 0.5;
       if (isLinear) {
         const x = Math.floor(Math.random() * 8) + 2;
@@ -236,7 +259,6 @@ export class MathGenerator {
         };
       }
     } else if (difficulty === 'medium') {
-      // Persamaan dua langkah: ax + b = c atau ax - b = c
       const x = Math.floor(Math.random() * 8) + 2;
       const a = Math.floor(Math.random() * 4) + 2; // 2..5
       const b = Math.floor(Math.random() * 12) + 2;
@@ -277,10 +299,10 @@ export class MathGenerator {
         };
       }
     } else {
-      // Tingkat sulit: koefisien lebih besar dan tantangan aljabar
-      const x = Math.floor(Math.random() * 12) + 3; // 3..14
-      const a = Math.floor(Math.random() * 5) + 4; // 4..8
-      const b = Math.floor(Math.random() * 25) + 10;
+      // 🔥 Tingkat sulit: koefisien lebih besar
+      const x = Math.floor(Math.random() * 12) + 4; // 4..15
+      const a = Math.floor(Math.random() * 6) + 4; // 4..9
+      const b = Math.floor(Math.random() * 30) + 12;
       const isPlus = Math.random() > 0.5;
 
       if (isPlus) {
@@ -290,9 +312,9 @@ export class MathGenerator {
           category: 'algebra',
           questionText: `Cari nilai x:  ${a}x + ${b} = ${rhs}`,
           correctAnswer: x,
-          scoreValue: 9,
+          scoreValue: isHardChallenge ? 18 : 9,
           difficulty,
-          subText: 'Aljabar Tingkat Lanjut',
+          subText: '🔥 Aljabar Tingkat Lanjut',
         };
       } else {
         const rhs = a * x - b;
@@ -301,9 +323,9 @@ export class MathGenerator {
           category: 'algebra',
           questionText: `Cari nilai x:  ${a}x - ${b} = ${rhs}`,
           correctAnswer: x,
-          scoreValue: 9,
+          scoreValue: isHardChallenge ? 18 : 9,
           difficulty,
-          subText: 'Aljabar Tingkat Lanjut',
+          subText: '🔥 Aljabar Tingkat Lanjut',
         };
       }
     }
@@ -311,10 +333,10 @@ export class MathGenerator {
 
   private static generateRoots(
     id: string,
-    difficulty: QuestionDifficulty
+    difficulty: QuestionDifficulty,
+    isHardChallenge?: boolean
   ): MathQuestion {
     if (difficulty === 'easy') {
-      // Kuadrat mudah: 2..8 (√4 s/d √64)
       const base = Math.floor(Math.random() * 7) + 2;
       const num = base * base;
       return {
@@ -327,7 +349,6 @@ export class MathGenerator {
         subText: 'Akar Kuadrat Dasar',
       };
     } else if (difficulty === 'medium') {
-      // Kuadrat 9..13 (√81 s/d √169) atau Akar Pangkat Tiga 2..3 (∛8, ∛27)
       const isCube = Math.random() > 0.6;
       if (isCube) {
         const base = Math.floor(Math.random() * 2) + 2; // 2..3
@@ -355,31 +376,31 @@ export class MathGenerator {
         };
       }
     } else {
-      // Kuadrat 13..16 (√169 s/d √256) atau Akar Pangkat Tiga 4..7 (∛64, ∛125, ∛216, ∛343)
+      // 🔥 Kuadrat besar 14..20 atau Kubik 5..10
       const isCube = Math.random() > 0.45;
       if (isCube) {
-        const base = Math.floor(Math.random() * 4) + 4; // 4..7
+        const base = Math.floor(Math.random() * 6) + 5; // 5..10 (125, 216, 343, 512, 729, 1000)
         const num = base * base * base;
         return {
           id,
           category: 'roots',
           questionText: `∛${num} = ?`,
           correctAnswer: base,
-          scoreValue: 10,
+          scoreValue: isHardChallenge ? 20 : 10,
           difficulty,
-          subText: 'Akar Pangkat Tiga Master',
+          subText: '🔥 Akar Pangkat Tiga Master',
         };
       } else {
-        const base = Math.floor(Math.random() * 4) + 13; // 13..16
+        const base = Math.floor(Math.random() * 7) + 14; // 14..20 (196, 225, 256, 289, 324, 361, 400)
         const num = base * base;
         return {
           id,
           category: 'roots',
           questionText: `√${num} = ?`,
           correctAnswer: base,
-          scoreValue: 9,
+          scoreValue: isHardChallenge ? 18 : 9,
           difficulty,
-          subText: 'Akar Kuadrat Tingkat Lanjut',
+          subText: '🔥 Akar Kuadrat Tingkat Lanjut',
         };
       }
     }
@@ -387,10 +408,10 @@ export class MathGenerator {
 
   private static generatePhysics(
     id: string,
-    difficulty: QuestionDifficulty
+    difficulty: QuestionDifficulty,
+    isHardChallenge?: boolean
   ): MathQuestion {
     if (difficulty === 'easy') {
-      // Jarak sederhana: s = v * t
       const v = Math.floor(Math.random() * 6) + 3; // 3..8 km/jam
       const t = Math.floor(Math.random() * 4) + 2; // 2..5 jam
       return {
@@ -403,10 +424,10 @@ export class MathGenerator {
         subText: 'Rumus: Jarak s = v × t',
       };
     } else if (difficulty === 'medium') {
-      const type = Math.floor(Math.random() * 2); // 0: speed, 1: time
+      const type = Math.floor(Math.random() * 2);
       if (type === 0) {
-        const answer = Math.floor(Math.random() * 8) + 5; // 5..12 km/jam
-        const t = Math.floor(Math.random() * 4) + 2; // 2..5 jam
+        const answer = Math.floor(Math.random() * 8) + 5;
+        const t = Math.floor(Math.random() * 4) + 2;
         const s = answer * t;
         return {
           id,
@@ -418,8 +439,8 @@ export class MathGenerator {
           subText: 'Rumus: Kecepatan v = s ÷ t',
         };
       } else {
-        const answer = Math.floor(Math.random() * 5) + 2; // 2..6 jam
-        const v = Math.floor(Math.random() * 8) + 5; // 5..12 km/jam
+        const answer = Math.floor(Math.random() * 5) + 2;
+        const v = Math.floor(Math.random() * 8) + 5;
         const s = answer * v;
         return {
           id,
@@ -432,31 +453,31 @@ export class MathGenerator {
         };
       }
     } else {
-      // Tingkat lanjut: Hukum Newton Gaya (F = m * a) atau Usaha (W = F * s)
+      // 🔥 Hukum Newton Gaya (F = m * a) atau Usaha (W = F * s)
       const isForce = Math.random() > 0.5;
       if (isForce) {
-        const m = Math.floor(Math.random() * 8) + 4; // 4..11 kg
-        const a = Math.floor(Math.random() * 6) + 3; // 3..8 m/s²
+        const m = Math.floor(Math.random() * 10) + 6; // 6..15 kg
+        const a = Math.floor(Math.random() * 8) + 4; // 4..11 m/s²
         return {
           id,
           category: 'physics',
           questionText: `Gaya (F) jika massa m = ${m} kg & percepatan a = ${a} m/s²?`,
           correctAnswer: m * a,
-          scoreValue: 9,
+          scoreValue: isHardChallenge ? 18 : 9,
           difficulty,
-          subText: 'Hukum II Newton: F = m × a (Satuan Newton)',
+          subText: '🔥 Hukum II Newton: F = m × a (Newton)',
         };
       } else {
-        const F = Math.floor(Math.random() * 10) + 8; // 8..17 N
-        const s = Math.floor(Math.random() * 6) + 3; // 3..8 m
+        const F = Math.floor(Math.random() * 15) + 10; // 10..24 N
+        const s = Math.floor(Math.random() * 8) + 4; // 4..11 m
         return {
           id,
           category: 'physics',
           questionText: `Usaha (W) jika gaya F = ${F} N & jarak perpindahan s = ${s} m?`,
           correctAnswer: F * s,
-          scoreValue: 9,
+          scoreValue: isHardChallenge ? 18 : 9,
           difficulty,
-          subText: 'Rumus Usaha: W = F × s (Satuan Joule)',
+          subText: '🔥 Rumus Usaha: W = F × s (Joule)',
         };
       }
     }
@@ -464,10 +485,10 @@ export class MathGenerator {
 
   private static generateGeometry(
     id: string,
-    difficulty: QuestionDifficulty
+    difficulty: QuestionDifficulty,
+    isHardChallenge?: boolean
   ): MathQuestion {
     if (difficulty === 'easy') {
-      // Keliling persegi (K = 4s) atau Luas Persegi Panjang (L = p * l)
       const isPerimeter = Math.random() > 0.5;
       if (isPerimeter) {
         const s = Math.floor(Math.random() * 8) + 3;
@@ -494,10 +515,9 @@ export class MathGenerator {
         };
       }
     } else if (difficulty === 'medium') {
-      // Volume kubus (s³) atau Volume balok (p * l * t)
       const isCube = Math.random() > 0.5;
       if (isCube) {
-        const s = Math.floor(Math.random() * 3) + 2; // 2..4
+        const s = Math.floor(Math.random() * 3) + 2;
         return {
           id,
           category: 'geometry',
@@ -522,22 +542,22 @@ export class MathGenerator {
         };
       }
     } else {
-      // Luas permukaan kubus (6s²) atau Luas permukaan balok: 2(pl + pt + lt)
+      // 🔥 Luas permukaan kubus (6s²) atau Luas permukaan balok: 2(pl + pt + lt)
       const isCubeSurface = Math.random() > 0.5;
       if (isCubeSurface) {
-        const s = Math.floor(Math.random() * 4) + 3; // 3..6
+        const s = Math.floor(Math.random() * 5) + 4; // 4..8
         return {
           id,
           category: 'geometry',
           questionText: `Luas permukaan kubus dengan sisi ${s} cm = ?`,
           correctAnswer: 6 * s * s,
-          scoreValue: 9,
+          scoreValue: isHardChallenge ? 18 : 9,
           difficulty,
-          subText: 'Luas Permukaan Kubus: L = 6s² (cm²)',
+          subText: '🔥 Luas Permukaan Kubus: L = 6s² (cm²)',
         };
       } else {
-        const p = Math.floor(Math.random() * 4) + 3; // 3..6
-        const l = Math.floor(Math.random() * 3) + 2; // 2..4
+        const p = Math.floor(Math.random() * 5) + 4; // 4..8
+        const l = Math.floor(Math.random() * 4) + 3; // 3..6
         const t = Math.floor(Math.random() * 3) + 2; // 2..4
         const surfaceArea = 2 * (p * l + p * t + l * t);
         return {
@@ -545,12 +565,13 @@ export class MathGenerator {
           category: 'geometry',
           questionText: `Luas permukaan balok (${p} cm × ${l} cm × ${t} cm) = ?`,
           correctAnswer: surfaceArea,
-          scoreValue: 10,
+          scoreValue: isHardChallenge ? 20 : 10,
           difficulty,
-          subText: 'L = 2(p·l + p·t + l·t)',
+          subText: '🔥 L = 2(p·l + p·t + l·t)',
         };
       }
     }
   }
 }
+
 

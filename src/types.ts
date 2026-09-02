@@ -19,6 +19,7 @@ export interface MathQuestion {
   scoreValue: number;
   difficulty?: QuestionDifficulty;
   subText?: string;
+  isHardChallenge?: boolean;
   // For counting category (e.g. 7 apples)
   visualItem?: {
     icon: string; // e.g. "🍎" | "🥊" | "⭐" | "🥊"

@@ -234,6 +234,7 @@ export default function App() {
   const [wrongCount, setWrongCount] = useState<number>(0);
   const [highestCombo, setHighestCombo] = useState<number>(0);
   const [lastBonusPoints, setLastBonusPoints] = useState<number | null>(null);
+  const [levelingStreak, setLevelingStreak] = useState<number>(0); // Progress: 0 -> 1 -> 2 (Soal Sulit)
   const [answerHistory, setAnswerHistory] = useState<AnswerHistoryPoint[]>([]);
   const [rematchStatus, setRematchStatus] = useState<
     "idle" | "requested_by_me" | "requested_by_opponent"
@@ -305,16 +306,31 @@ export default function App() {
     [],
   );
 
-  const nextQuestion = useCallback(() => {
-    const diff = getDifficultyForProgress(
+  const nextQuestion = useCallback(
+    (customStreak?: number) => {
+      const currentStreak = customStreak !== undefined ? customStreak : levelingStreak;
+      const isHardChallenge = currentStreak >= 2;
+      const diff = isHardChallenge
+        ? "hard"
+        : getDifficultyForProgress(timeRemaining, activeDuration, totalAnswered);
+      const q = MathGenerator.generateQuestion(
+        category,
+        diff,
+        undefined,
+        isHardChallenge,
+      );
+      setCurrentQuestion(q);
+      return q;
+    },
+    [
+      category,
+      getDifficultyForProgress,
       timeRemaining,
       activeDuration,
       totalAnswered,
-    );
-    const q = MathGenerator.generateQuestion(category, diff);
-    setCurrentQuestion(q);
-    return q;
-  }, [category, getDifficultyForProgress, timeRemaining, activeDuration, totalAnswered]);
+      levelingStreak,
+    ],
+  );
 
   // Start Match logic
   const startMatch = useCallback(
@@ -343,6 +359,7 @@ export default function App() {
       setWrongCount(0);
       setHighestCombo(0);
       setLastBonusPoints(null);
+      setLevelingStreak(0);
       setLastHitBy(null);
       setAnswerHistory([]);
       setRematchStatus("idle");
@@ -437,6 +454,9 @@ export default function App() {
 
               if (payload.nextQuestion) {
                 setCurrentQuestion(payload.nextQuestion);
+              }
+              if (payload.levelingStreak !== undefined) {
+                setLevelingStreak(payload.levelingStreak);
               }
 
               const updatedP1Health = payload.p2Health !== undefined ? payload.p2Health : 100;
@@ -852,13 +872,35 @@ export default function App() {
       const newP2Health = Math.max(0, p2.health - totalDamage);
       const isKnockoutWin = newP2Health <= 0;
 
+      // 🥊 SISTEM LEVELING SOAL: 2 Soal benar memicu 1 Soal Sulit dengan Poin Besar
+      let nextLevelingStreak = levelingStreak;
+      let isNextHardChallenge = false;
+
+      if (currentQuestion.isHardChallenge) {
+        // Pemain baru saja berhasil menyelesaikan soal sulit! Reset siklus ke 0
+        nextLevelingStreak = 0;
+        isNextHardChallenge = false;
+      } else {
+        nextLevelingStreak = levelingStreak + 1;
+        if (nextLevelingStreak >= 2) {
+          // Tepat 2 soal benar tercapai! Soal selanjutnya adalah Soal Sulit Super Poin!
+          isNextHardChallenge = true;
+          nextLevelingStreak = 2;
+        }
+      }
+
+      setLevelingStreak(nextLevelingStreak);
+
       // ✅ Generate soal baru yang SAMA untuk dikirim ke lawan dengan leveling kesulitan
-      const nextDiff = getDifficultyForProgress(
-        timeRemaining,
-        activeDuration,
-        newTotal,
+      const nextDiff = isNextHardChallenge
+        ? "hard"
+        : getDifficultyForProgress(timeRemaining, activeDuration, newTotal);
+      const nextQ = MathGenerator.generateQuestion(
+        category,
+        nextDiff,
+        undefined,
+        isNextHardChallenge,
       );
-      const nextQ = MathGenerator.generateQuestion(category, nextDiff);
 
       // ✅ Handle Instant Knockout Victory vs Normal Hit
       if (isKnockoutWin) {
@@ -924,6 +966,7 @@ export default function App() {
               p1Health: healedP1Health, // Status HP P1 (termasuk heal)
               p2Health: newP2Health, // Sisa HP P2 setelah dipukul
               nextQuestion: nextQ, // Soal baru hasil sinkronisasi
+              levelingStreak: nextLevelingStreak,
             },
           });
         }
@@ -968,6 +1011,8 @@ export default function App() {
       setIsNumpadLocked(true);
       triggerScreenShake("light");
 
+      // Jawaban salah: reset combo dan leveling streak ke 0
+      setLevelingStreak(0);
       setP1((prev) => ({ ...prev, combo: 0 }));
 
       setAnswerHistory((prev) => [
@@ -1251,7 +1296,7 @@ export default function App() {
 
           {/* 3. Math Question Card */}
           <div className="shrink-0">
-            <QuestionCard question={currentQuestion} />
+            <QuestionCard question={currentQuestion} levelingStreak={levelingStreak} />
           </div>
 
           {/* 4. Ergonomic Responsive Numpad */}
