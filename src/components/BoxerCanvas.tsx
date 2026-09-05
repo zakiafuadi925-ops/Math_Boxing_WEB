@@ -24,6 +24,33 @@ export interface DamagePopup {
   target: 'p1' | 'p2';
 }
 
+// Low-overhead particle for 60fps mobile Android performance (no GC allocations during render)
+interface HitParticle {
+  active: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  size: number;
+  color: string;
+  alpha: number;
+  decay: number;
+  shape: 'circle' | 'star' | 'sweat' | 'spark' | 'ring';
+  gravity: number;
+  rotation: number;
+  vRot: number;
+}
+
+interface ComicBurst {
+  active: boolean;
+  text: string;
+  x: number;
+  y: number;
+  alpha: number;
+  scale: number;
+  color: string;
+}
+
 export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
   p1,
   p2,
@@ -52,6 +79,127 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
   const [p2HealthPulse, setP2HealthPulse] = useState(false);
   const [p1HealPulse, setP1HealPulse] = useState(false);
   const [p2HealPulse, setP2HealPulse] = useState(false);
+
+  // Pre-allocated Particle Pool (64 fixed objects in memory, zero garbage collection pauses)
+  const particlesRef = useRef<HitParticle[]>(
+    Array.from({ length: 64 }, () => ({
+      active: false,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      size: 4,
+      color: '#fbbf24',
+      alpha: 1,
+      decay: 0.04,
+      shape: 'spark',
+      gravity: 0.15,
+      rotation: 0,
+      vRot: 0.1,
+    }))
+  );
+
+  // Screen-shake & Rope Spring references
+  const shakeRef = useRef(0);
+  const ropeSpringRef = useRef({
+    p1Offset: 0,
+    p1Vel: 0,
+    p2Offset: 0,
+    p2Vel: 0,
+  });
+
+  // Comic text burst
+  const comicBurstRef = useRef<ComicBurst>({
+    active: false,
+    text: '',
+    x: 0,
+    y: 0,
+    alpha: 0,
+    scale: 0.8,
+    color: '#fde047',
+  });
+
+  // Spawn visual impact particles
+  const spawnHitFX = (targetX: number, targetY: number, isCrit: boolean, punchType: string, targetDir: number) => {
+    shakeRef.current = isCrit ? 9 : 5;
+
+    // Trigger ring rope rebound
+    if (targetDir > 0) {
+      ropeSpringRef.current.p2Vel += isCrit ? 16 : 10;
+    } else {
+      ropeSpringRef.current.p1Vel -= isCrit ? 16 : 10;
+    }
+
+    // Set comic burst
+    const burstTexts = isCrit
+      ? ['CRUSH!', 'K.O.!', 'BOOM!', 'SMASH!']
+      : punchType === 'uppercut'
+      ? ['UPPERCUT!', 'WHAM!']
+      : punchType === 'hook'
+      ? ['HOOK!', 'POW!']
+      : ['JAB!', 'SNAP!', 'HIT!'];
+    const chosenBurst = burstTexts[Math.floor(Math.random() * burstTexts.length)];
+    comicBurstRef.current = {
+      active: true,
+      text: chosenBurst,
+      x: targetX,
+      y: targetY - 25,
+      alpha: 1,
+      scale: isCrit ? 1.4 : 1.0,
+      color: isCrit ? '#fde047' : '#ffffff',
+    };
+
+    const count = isCrit ? 24 : 14;
+    let spawned = 0;
+    const pool = particlesRef.current;
+
+    for (let i = 0; i < pool.length && spawned < count; i++) {
+      const p = pool[i];
+      if (!p.active) {
+        p.active = true;
+        p.x = targetX + (Math.random() - 0.5) * 16;
+        p.y = targetY + (Math.random() - 0.5) * 16;
+
+        // Variety of particle shapes (sparks, sweat droplets, stars)
+        const rnd = Math.random();
+        if (rnd < 0.35) {
+          // Sweat droplet flying off cheek
+          p.shape = 'sweat';
+          p.color = 'rgba(186, 230, 253, 0.9)'; // light blue
+          p.size = Math.random() * 3.5 + 2;
+          p.vx = targetDir * (Math.random() * 4 + 2) + (Math.random() - 0.5) * 3;
+          p.vy = -Math.random() * 4 - 1.5;
+          p.gravity = 0.22;
+          p.decay = 0.035;
+        } else if (rnd < 0.75) {
+          // Fiery friction sparks
+          p.shape = 'spark';
+          p.color = Math.random() > 0.5 ? '#f59e0b' : '#fde047';
+          p.size = Math.random() * 4 + 2;
+          const angle = Math.random() * Math.PI * 2;
+          const speed = Math.random() * 6 + 3;
+          p.vx = Math.cos(angle) * speed;
+          p.vy = Math.sin(angle) * speed;
+          p.gravity = 0.12;
+          p.decay = 0.05;
+        } else {
+          // Comic stars
+          p.shape = 'star';
+          p.color = '#facc15';
+          p.size = Math.random() * 5 + 4;
+          p.vx = (Math.random() - 0.5) * 6;
+          p.vy = -Math.random() * 5 - 2;
+          p.gravity = 0.18;
+          p.decay = 0.04;
+          p.rotation = Math.random() * Math.PI;
+          p.vRot = (Math.random() - 0.5) * 0.4;
+        }
+
+        p.alpha = 1;
+        spawned++;
+      }
+    }
+  };
 
   const comboInfo = getComboMultiplier(combo);
 
@@ -119,7 +267,7 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
     prevP2Health.current = p2.health;
   }, [p2.health, lastHitBy]);
 
-  // Track score changes & trigger floating damage text popups
+  // Track score changes & trigger floating damage text popups + Canvas hit effects
   useEffect(() => {
     if (p1.score < prevP1Score.current) {
       prevP1Score.current = p1.score;
@@ -157,6 +305,9 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
 
       setPopups((prev) => [...prev.slice(-3), newPopup]);
       prevP1Score.current = p1.score;
+
+      // Spawn in-canvas FX at P2 position
+      spawnHitFX(800 * 0.68, 450 * 0.7 - 80, isCrit, p1.currentAction, 1);
     }
 
     // P2 scores a hit on P1
@@ -179,6 +330,9 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
 
       setPopups((prev) => [...prev.slice(-3), newPopup]);
       prevP2Score.current = p2.score;
+
+      // Spawn in-canvas FX at P1 position
+      spawnHitFX(800 * 0.32, 450 * 0.7 - 80, false, p2.currentAction, -1);
     }
   }, [p1.score, p2.score, p1.combo, p1.currentAction, p2.currentAction]);
 
@@ -204,18 +358,25 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
 
     const width = 800;
     const height = 450;
+    const matY = height * 0.7;
 
     // Pre-create gradients once to avoid 60fps GC allocation
     const arenaGradient = ctx.createLinearGradient(0, 0, 0, height);
-    arenaGradient.addColorStop(0, '#0f172a');
-    arenaGradient.addColorStop(0.5, '#1e1b4b');
-    arenaGradient.addColorStop(1, '#090d16');
+    arenaGradient.addColorStop(0, '#0a0f1d');
+    arenaGradient.addColorStop(0.5, '#161938');
+    arenaGradient.addColorStop(1, '#070a12');
 
-    const spotlight = ctx.createRadialGradient(width / 2, height / 2, 20, width / 2, height / 2, width * 0.6);
-    spotlight.addColorStop(0, 'rgba(238, 242, 255, 0.12)');
-    spotlight.addColorStop(1, 'rgba(0,0,0,0)');
+    const spotlightP1 = ctx.createRadialGradient(width * 0.32, matY - 60, 10, width * 0.32, matY - 60, width * 0.35);
+    spotlightP1.addColorStop(0, 'rgba(248, 113, 113, 0.12)');
+    spotlightP1.addColorStop(1, 'rgba(0,0,0,0)');
 
-    const matY = height * 0.7;
+    const spotlightP2 = ctx.createRadialGradient(width * 0.68, matY - 60, 10, width * 0.68, matY - 60, width * 0.35);
+    spotlightP2.addColorStop(0, 'rgba(96, 165, 250, 0.12)');
+    spotlightP2.addColorStop(1, 'rgba(0,0,0,0)');
+
+    const matGradient = ctx.createLinearGradient(0, matY, 0, height);
+    matGradient.addColorStop(0, '#334155');
+    matGradient.addColorStop(1, '#1e293b');
 
     const render = (now: number) => {
       const delta = (now - lastRenderTime) / 1000;
@@ -226,16 +387,50 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
       const curP2 = p2Ref.current;
       const curLastHitBy = lastHitByRef.current;
 
-      // 1. Clear & Draw Arena Floor
+      // Update physical spring simulation for ring ropes
+      const rope = ropeSpringRef.current;
+      rope.p1Vel += -rope.p1Offset * 0.18;
+      rope.p1Vel *= 0.86;
+      rope.p1Offset += rope.p1Vel;
+
+      rope.p2Vel += -rope.p2Offset * 0.18;
+      rope.p2Vel *= 0.86;
+      rope.p2Offset += rope.p2Vel;
+
+      // Update Screen Shake
+      ctx.save();
+      if (shakeRef.current > 0.3) {
+        const shakeX = (Math.random() - 0.5) * shakeRef.current;
+        const shakeY = (Math.random() - 0.5) * shakeRef.current;
+        ctx.translate(shakeX, shakeY);
+        shakeRef.current *= 0.84;
+      }
+
+      // 1. Draw Arena Background & Lights
       ctx.fillStyle = arenaGradient;
       ctx.fillRect(0, 0, width, height);
 
-      // Spotlight
-      ctx.fillStyle = spotlight;
+      // Arena Wall Crowd Silhouette effect (Subtle vintage stadium rows)
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.6)';
+      for (let r = 0; r < 4; r++) {
+        const rowY = matY - 100 + r * 16;
+        for (let c = 0; c < 28; c++) {
+          const colX = 15 + c * 28 + (r % 2 === 0 ? 10 : 0);
+          const headBob = Math.sin(time * 2 + c) * 1.5;
+          ctx.beginPath();
+          ctx.arc(colX, rowY + headBob, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Dual Spotlight Cones
+      ctx.fillStyle = spotlightP1;
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = spotlightP2;
       ctx.fillRect(0, 0, width, height);
 
-      // Canvas Floor Mat
-      ctx.fillStyle = '#334155';
+      // 2. Ring Floor Mat (3D Isometric Perspective Trapezoid)
+      ctx.fillStyle = matGradient;
       ctx.beginPath();
       ctx.moveTo(width * 0.05, height);
       ctx.lineTo(width * 0.2, matY);
@@ -244,51 +439,175 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
       ctx.closePath();
       ctx.fill();
 
-      // Mat Center Ring
-      ctx.strokeStyle = '#e2e8f0';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.ellipse(width / 2, matY + 40, width * 0.22, 20, 0, 0, Math.PI * 2);
+      // Outer Apron Edge
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 4;
       ctx.stroke();
 
-      // Ring Ropes (Simulated wave)
-      const ropeColors = ['#ef4444', '#ffffff', '#3b82f6'];
+      // Center Ring Combat Target Emblem
+      ctx.strokeStyle = 'rgba(226, 232, 240, 0.35)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(width / 2, matY + 42, width * 0.22, 22, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.4)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(width / 2, matY + 42, width * 0.12, 12, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 3. Dynamic Interactive Elastic Ring Ropes (Bezier Rebound)
+      const ropeColors = ['#ef4444', '#f8fafc', '#3b82f6'];
       for (let idx = 0; idx < 3; idx++) {
-        const ropeY = matY - 40 - idx * 25;
+        const baseRopeY = matY - 42 - idx * 26;
+        const wave = Math.sin(time * 3 + idx) * 1.5;
+
+        // Elastic rope bowing points when boxers are pushed or punch
+        const cp1X = width * 0.32;
+        const cp1Y = baseRopeY + wave + rope.p1Offset * (1 - idx * 0.2);
+        const cp2X = width * 0.68;
+        const cp2Y = baseRopeY + wave + rope.p2Offset * (1 - idx * 0.2);
+
+        // Rope shadow for depth
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(0, baseRopeY + 3);
+        ctx.bezierCurveTo(cp1X, cp1Y + 3, cp2X, cp2Y + 3, width, baseRopeY + 3);
+        ctx.stroke();
+
+        // Main colored rope
         ctx.strokeStyle = ropeColors[idx];
         ctx.lineWidth = 3.5;
         ctx.beginPath();
-        ctx.moveTo(0, ropeY + Math.sin(time + idx) * 1.5);
-        ctx.lineTo(width, ropeY + Math.cos(time + idx) * 1.5);
+        ctx.moveTo(0, baseRopeY);
+        ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, width, baseRopeY);
         ctx.stroke();
       }
 
-      // Turnbuckle Corner Posts
-      ctx.fillStyle = '#ef4444';
-      ctx.fillRect(width * 0.02, matY - 120, 12, 130);
-      ctx.fillStyle = '#3b82f6';
-      ctx.fillRect(width * 0.98 - 12, matY - 120, 12, 130);
+      // Turnbuckle Corner Posts (Red Left, Blue Right)
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(width * 0.02, matY - 130, 14, 140);
+      ctx.fillStyle = '#fca5a5';
+      ctx.fillRect(width * 0.02 + 2, matY - 130, 3, 140); // corner highlight
 
-      // 2. Draw Boxers
-      drawBoxer(
+      ctx.fillStyle = '#2563eb';
+      ctx.fillRect(width * 0.98 - 14, matY - 130, 14, 140);
+      ctx.fillStyle = '#93c5fd';
+      ctx.fillRect(width * 0.98 - 12, matY - 130, 3, 140);
+
+      // Turnbuckle pads
+      for (let idx = 0; idx < 3; idx++) {
+        const padY = matY - 48 - idx * 26;
+        ctx.fillStyle = '#f59e0b';
+        ctx.fillRect(width * 0.02 - 3, padY, 20, 10);
+        ctx.fillRect(width * 0.98 - 17, padY, 20, 10);
+      }
+
+      // 4. Draw Boxers with Procedural Dynamic Kinematics
+      drawEnhancedBoxer(
         ctx,
         width * 0.32,
-        matY + 10,
+        matY + 12,
         curP1,
         'right',
         time,
         curLastHitBy === 'p2'
       );
 
-      drawBoxer(
+      drawEnhancedBoxer(
         ctx,
         width * 0.68,
-        matY + 10,
+        matY + 12,
         curP2,
         'left',
         time,
         curLastHitBy === 'p1'
       );
+
+      // 5. Render Particle Pool FX (Sparks, Sweat, Stars)
+      const pool = particlesRef.current;
+      for (let i = 0; i < pool.length; i++) {
+        const p = pool[i];
+        if (p.active) {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += p.gravity;
+          p.alpha -= p.decay;
+          p.rotation += p.vRot;
+
+          if (p.alpha <= 0.05) {
+            p.active = false;
+            continue;
+          }
+
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          ctx.translate(p.x, p.y);
+
+          if (p.shape === 'sweat') {
+            // Teardrop sweat particle
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, p.size * 0.8, p.size * 1.5, Math.atan2(p.vy, p.vx), 0, Math.PI * 2);
+            ctx.fill();
+          } else if (p.shape === 'star') {
+            // 4-point rotating golden comic star
+            ctx.rotate(p.rotation);
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            const s = p.size;
+            ctx.moveTo(0, -s);
+            ctx.lineTo(s * 0.3, -s * 0.3);
+            ctx.lineTo(s, 0);
+            ctx.lineTo(s * 0.3, s * 0.3);
+            ctx.lineTo(0, s);
+            ctx.lineTo(-s * 0.3, s * 0.3);
+            ctx.lineTo(-s, 0);
+            ctx.lineTo(-s * 0.3, -s * 0.3);
+            ctx.closePath();
+            ctx.fill();
+          } else {
+            // Sharp friction spark
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, p.size, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          ctx.restore();
+        }
+      }
+
+      // 6. Draw Comic Action Text Burst ("POW!", "UPPERCUT!", "WHAM!")
+      const burst = comicBurstRef.current;
+      if (burst.active && burst.alpha > 0.05) {
+        burst.y -= 0.6; // upward drift
+        burst.alpha -= 0.035;
+        burst.scale += 0.015;
+
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, burst.alpha);
+        ctx.translate(burst.x, burst.y);
+        ctx.scale(burst.scale, burst.scale);
+
+        // Black outline for crisp arcade readability
+        ctx.font = '900 20px "Bungee", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        ctx.strokeStyle = '#020617';
+        ctx.lineWidth = 5;
+        ctx.strokeText(burst.text, 0, 0);
+
+        ctx.fillStyle = burst.color;
+        ctx.fillText(burst.text, 0, 0);
+
+        ctx.restore();
+      }
+
+      ctx.restore(); // Restore screen shake
 
       animId = requestAnimationFrame(render);
     };
@@ -475,7 +794,10 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
   );
 });
 
-function drawBoxer(
+// ============================================================================
+// Enhanced Procedural Boxer Renderer (High Performance 2D Vector Primitives)
+// ============================================================================
+function drawEnhancedBoxer(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -486,132 +808,380 @@ function drawBoxer(
 ) {
   const dir = facing === 'right' ? 1 : -1;
   const isKnockdown = player.currentAction === 'knockdown' || player.health <= 0;
-  const isPunching = ['jab', 'cross', 'hook', 'uppercut'].includes(player.currentAction);
+  const action = player.currentAction;
 
   ctx.save();
   ctx.translate(x, y);
 
-  // Knockdown pose vs Taunt pose vs Idle
-  const isTaunting = player.currentAction.startsWith('taunt_');
+  // Dynamic Procedural Sway & Bob-and-Weave
+  let torsoAngle = 0;
+  let headAngle = 0;
+  let shadowScale = 1;
+
   if (isKnockdown) {
-    ctx.rotate((dir * Math.PI) / 3);
-    ctx.translate(0, 30);
-  } else if (player.currentAction === 'taunt_crown') {
-    // Champion Victory Jump
-    const jump = Math.abs(Math.sin(time * 10)) * 14;
+    // Fallen flat / dazed on mat
+    ctx.rotate((dir * Math.PI) / 2.6);
+    ctx.translate(dir * 15, 36);
+    shadowScale = 1.3;
+  } else if (action === 'taunt_crown') {
+    // High Champion Victory Leap
+    const jump = Math.abs(Math.sin(time * 8)) * 18;
     ctx.translate(0, -jump);
-  } else if (player.currentAction === 'taunt_shuffle') {
-    // Lightning side shuffle
-    const shuffleX = Math.sin(time * 24) * 18;
-    ctx.translate(shuffleX, 0);
-  } else if (player.currentAction === 'taunt_dance') {
-    // Disco dance sway
-    const danceX = Math.sin(time * 12) * 10;
+    shadowScale = Math.max(0.6, 1 - jump / 35);
+  } else if (action === 'taunt_shuffle') {
+    // Lightning Ali Footwork Shuffle
+    const shuffleX = Math.sin(time * 22) * 16;
+    const shuffleY = Math.abs(Math.sin(time * 22)) * 5;
+    ctx.translate(shuffleX, -shuffleY);
+    torsoAngle = Math.sin(time * 22) * 0.1;
+  } else if (action === 'taunt_dance') {
+    // Groovy Disco Torso Roll
+    const danceX = Math.sin(time * 12) * 12;
     const danceY = Math.cos(time * 12) * 6;
     ctx.translate(danceX, danceY);
+    torsoAngle = Math.sin(time * 12) * 0.15;
+  } else if (action === 'uppercut') {
+    // Uppercut launching puncher slightly upward
+    ctx.translate(0, -10);
+    shadowScale = 0.8;
+    torsoAngle = -dir * 0.12;
+  } else if (action === 'cross') {
+    // Deep forward leaning cross
+    ctx.translate(dir * 12, 2);
+    torsoAngle = dir * 0.14;
+  } else if (action === 'hook') {
+    // Torso twist hook
+    torsoAngle = -dir * 0.1;
+  } else if (action === 'jab') {
+    // Quick snap forward
+    ctx.translate(dir * 8, 0);
   } else {
-    // Idle bounce
-    const bounce = Math.sin(time * 6) * 4;
-    ctx.translate(0, bounce);
+    // Natural Boxing Stance: Rhythmic figure-8 Bob & Weave
+    const bobY = Math.sin(time * 5) * 3.5;
+    const swayX = Math.cos(time * 2.5) * 2;
+    ctx.translate(swayX, bobY);
+    torsoAngle = (swayX / 20) * dir;
   }
 
-  // Hit shake
+  // Heavy Hit-Reaction Snap
   if (isBeingHit && !isKnockdown) {
-    const shakeX = (Math.random() - 0.5) * 14;
-    const shakeY = (Math.random() - 0.5) * 14;
-    ctx.translate(shakeX, shakeY);
+    const hitSnapX = -dir * (8 + Math.random() * 6);
+    const hitSnapY = (Math.random() - 0.5) * 6;
+    ctx.translate(hitSnapX, hitSnapY);
+    headAngle = -dir * 0.28;
+    torsoAngle = -dir * 0.16;
   }
 
-  // Shadow
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  // 1. Dynamic Floor Shadow (Scales with jumps and falls)
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
   ctx.beginPath();
-  ctx.ellipse(0, 25, 35, 12, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 24, 34 * shadowScale, 11 * shadowScale, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // 1. Legs & Boots
+  // 2. Legs & Boxing Boots
+  // Rear Leg (Staggered back in athletic stance)
   ctx.fillStyle = '#1e293b';
-  // Back leg
-  ctx.fillRect(-dir * 18, -15, 12, 35);
-  // Front leg
-  ctx.fillRect(dir * 6, -15, 12, 35);
-
-  // Boots
-  ctx.fillStyle = '#020617';
-  ctx.fillRect(-dir * 22, 15, 18, 12);
-  ctx.fillRect(dir * 2, 15, 18, 12);
-
-  // 2. Shorts / Trunks
-  ctx.fillStyle = player.avatarColor || (dir === 1 ? '#ef4444' : '#3b82f6');
-  ctx.fillRect(-22, -45, 44, 32);
-  // Waistband
-  ctx.fillStyle = '#fbbf24';
-  ctx.fillRect(-22, -45, 44, 8);
-
-  // 3. Torso
-  ctx.fillStyle = '#f87171'; // skin tone
   ctx.beginPath();
-  ctx.roundRect(-20, -95, 40, 52, 6);
+  ctx.roundRect(-dir * 20, -16, 13, 36, 4);
   ctx.fill();
 
-  // 4. Head & Face
-  ctx.fillStyle = '#f87171';
+  // Front Leg (Planted forward)
   ctx.beginPath();
-  ctx.arc(0, -115, 20, 0, Math.PI * 2);
+  ctx.roundRect(dir * 6, -18, 13, 38, 4);
   ctx.fill();
 
-  // Headguard
-  ctx.fillStyle = player.glovesColor || (dir === 1 ? '#dc2626' : '#2563eb');
-  ctx.beginPath();
-  ctx.arc(0, -118, 22, Math.PI, Math.PI * 2);
-  ctx.fill();
-
-  // Eye
+  // Boxing Boots (Contrasting high-top laces & rubber ring sole)
+  // Rear Boot
   ctx.fillStyle = '#0f172a';
   ctx.beginPath();
-  ctx.arc(dir * 8, -115, 3, 0, Math.PI * 2);
+  ctx.roundRect(-dir * 24, 15, 20, 13, [3, 6, 2, 2]);
+  ctx.fill();
+  ctx.fillStyle = '#f8fafc'; // White boxing boot ring sole
+  ctx.fillRect(-dir * 24, 25, 20, 3);
+
+  // Front Boot
+  ctx.fillStyle = '#0f172a';
+  ctx.beginPath();
+  ctx.roundRect(dir * 2, 16, 22, 13, [6, 3, 2, 2]);
+  ctx.fill();
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(dir * 2, 26, 22, 3);
+
+  // Boot Laces accent
+  ctx.strokeStyle = '#94a3b8';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(dir * 6, 18);
+  ctx.lineTo(dir * 14, 22);
+  ctx.moveTo(dir * 14, 18);
+  ctx.lineTo(dir * 6, 22);
+  ctx.stroke();
+
+  // 3. Boxing Trunks (Custom avatar color + side athletic stripe)
+  const trunksColor = player.avatarColor || (dir === 1 ? '#ef4444' : '#3b82f6');
+  ctx.fillStyle = trunksColor;
+  ctx.beginPath();
+  ctx.roundRect(-24, -48, 48, 35, [2, 2, 4, 4]);
   ctx.fill();
 
-  // 5. Arms & Boxing Gloves
+  // Side Athletic Stripe on Trunks
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(dir * 18 - 3, -48, 5, 35);
+
+  // Thick Elastic Championship Waistband
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(-24, -48, 48, 10);
+  ctx.fillStyle = '#f59e0b'; // Gold belt buckle
+  ctx.fillRect(-7, -49, 14, 12);
+  ctx.fillStyle = '#fbbf24';
+  ctx.fillRect(-4, -47, 8, 8);
+
+  // 4. Torso & Musculature Definition
+  ctx.save();
+  ctx.rotate(torsoAngle);
+
+  // Skin tone base
+  const skinTone = '#fca5a5';
+  ctx.fillStyle = skinTone;
+  ctx.beginPath();
+  ctx.roundRect(-22, -98, 44, 52, 8);
+  ctx.fill();
+
+  // Athletic muscle contours (peck shadow & abdominal shading lines)
+  ctx.strokeStyle = 'rgba(185, 28, 28, 0.22)';
+  ctx.lineWidth = 2;
+  // Chest pecks
+  ctx.beginPath();
+  ctx.arc(-8, -82, 9, 0, Math.PI * 0.85);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(8, -82, 9, Math.PI * 0.15, Math.PI);
+  ctx.stroke();
+  // Abdominal midline & six-pack lines
+  ctx.beginPath();
+  ctx.moveTo(0, -74);
+  ctx.lineTo(0, -52);
+  ctx.moveTo(-10, -64);
+  ctx.lineTo(10, -64);
+  ctx.moveTo(-9, -56);
+  ctx.lineTo(9, -56);
+  ctx.stroke();
+
+  // 5. Head & Facial Expressions
+  ctx.save();
+  ctx.translate(0, -116);
+  ctx.rotate(headAngle);
+
+  // Head base
+  ctx.fillStyle = skinTone;
+  ctx.beginPath();
+  ctx.arc(0, 0, 21, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Padded Protective Boxing Headguard
+  const headguardColor = player.glovesColor || (dir === 1 ? '#dc2626' : '#2563eb');
+  ctx.fillStyle = headguardColor;
+
+  // Crown dome of headguard
+  ctx.beginPath();
+  ctx.arc(0, -2, 22.5, Math.PI * 0.9, Math.PI * 2.1);
+  ctx.fill();
+
+  // Cheek & Ear Guard flaps
+  ctx.fillRect(-dir * 22, -10, 8, 18);
+  ctx.fillRect(dir * 14, -10, 8, 18);
+
+  // Chin strap
+  ctx.strokeStyle = headguardColor;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 10, 14, Math.PI * 0.2, Math.PI * 0.8);
+  ctx.stroke();
+
+  // Hair fringe peeking under headguard
+  ctx.fillStyle = '#1e1b4b';
+  ctx.beginPath();
+  ctx.arc(dir * 4, -12, 6, 0, Math.PI);
+  ctx.fill();
+
+  // Dynamic Animated Eyes & Mouth Expressions
+  if (isKnockdown) {
+    // Cartoon K.O. "X X" eyes
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.5;
+    // Eye 1
+    ctx.beginPath();
+    ctx.moveTo(dir * 5 - 3, -4);
+    ctx.lineTo(dir * 5 + 3, 2);
+    ctx.moveTo(dir * 5 + 3, -4);
+    ctx.lineTo(dir * 5 - 3, 2);
+    // Eye 2
+    ctx.moveTo(dir * 14 - 3, -4);
+    ctx.lineTo(dir * 14 + 3, 2);
+    ctx.moveTo(dir * 14 + 3, -4);
+    ctx.lineTo(dir * 14 - 3, 2);
+    ctx.stroke();
+
+    // Dazed open tongue/mouth
+    ctx.fillStyle = '#991b1b';
+    ctx.beginPath();
+    ctx.ellipse(dir * 9, 9, 4, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (isBeingHit) {
+    // Wincing pain eyes ("> <" slanted slit)
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(dir * 6 - 3, -2);
+    ctx.lineTo(dir * 6 + 3, 0);
+    ctx.lineTo(dir * 6 - 3, 2);
+    ctx.stroke();
+
+    // Gasping mouth in shock
+    ctx.fillStyle = '#7f1d1d';
+    ctx.beginPath();
+    ctx.ellipse(dir * 8, 8, 4.5, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (action === 'jab' || action === 'cross' || action === 'hook' || action === 'uppercut') {
+    // Fierce combat squint
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.ellipse(dir * 8, -1, 3.5, 2, dir * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Determined clenched jaw / mouthguard
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(dir * 5, 6, 8, 3);
+  } else {
+    // Idle: Focused intense boxing eyes
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(dir * 8, -1, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    // Eye light reflection pupil
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(dir * 9, -2, 1.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Fierce angled eyebrow
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(dir * 3, -6);
+    ctx.lineTo(dir * 13, -4);
+    ctx.stroke();
+
+    // Subtle confident smirk
+    ctx.beginPath();
+    ctx.moveTo(dir * 5, 8);
+    ctx.lineTo(dir * 11, 7);
+    ctx.stroke();
+  }
+
+  // Knockdown Orbiting Dizzy Stars (3D elliptical orbit above head)
+  if (isKnockdown) {
+    for (let sIdx = 0; sIdx < 3; sIdx++) {
+      const starAngle = time * 6 + (sIdx * Math.PI * 2) / 3;
+      const starX = Math.cos(starAngle) * 22;
+      const starY = -28 + Math.sin(starAngle) * 7;
+      ctx.fillStyle = '#facc15';
+      ctx.beginPath();
+      ctx.arc(starX, starY, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore(); // Head restored
+  ctx.restore(); // Torso restored
+
+  // 6. Boxing Gloves, Arms & Kinematics
   const gloveColor = player.glovesColor || (dir === 1 ? '#dc2626' : '#2563eb');
 
   let backGloveX = -dir * 14;
-  let backGloveY = -85;
-  let gloveX = dir * 20;
-  let gloveY = -90;
+  let backGloveY = -86;
+  let frontGloveX = dir * 20;
+  let frontGloveY = -88;
 
-  if (isPunching) {
-    gloveX = dir * 75; // Extended punch!
-    gloveY = -100;
+  // Render Punch Trajectories & Weaponized Kinetic Trails
+  if (action === 'jab') {
+    // Straight lightning jab
+    frontGloveX = dir * 88;
+    frontGloveY = -96;
 
-    // Punch motion trail
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+    // Straight speed motion lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(dir * 22, -90);
+    ctx.lineTo(frontGloveX - dir * 10, frontGloveY);
+    ctx.stroke();
+  } else if (action === 'cross') {
+    // Powerful rear cross punch (rear glove fires through front)
+    backGloveX = dir * 92;
+    backGloveY = -94;
+    frontGloveX = dir * 12;
+    frontGloveY = -78;
+
+    // Fiery speed streak
+    ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
     ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.moveTo(dir * 20, -90);
-    ctx.lineTo(gloveX, gloveY);
+    ctx.moveTo(-dir * 10, -84);
+    ctx.lineTo(backGloveX - dir * 10, backGloveY);
     ctx.stroke();
+  } else if (action === 'hook') {
+    // Wide horizontal sweeping hook
+    frontGloveX = dir * 80;
+    frontGloveY = -102;
 
-    // Impact Starburst
-    ctx.fillStyle = '#fde047';
+    // Curved crescent swoosh trail
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    ctx.arc(gloveX + dir * 10, gloveY, 16, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (player.currentAction === 'taunt_crown') {
-    // Both gloves raised overhead in Victory Champion Pose!
+    ctx.arc(dir * 20, -96, 55, dir > 0 ? -Math.PI * 0.4 : -Math.PI * 0.6, dir > 0 ? 0.1 : Math.PI * 1.1);
+    ctx.stroke();
+  } else if (action === 'uppercut') {
+    // Explosive vertical upward thrust
+    frontGloveX = dir * 55;
+    frontGloveY = -130; // Driving straight up!
+
+    // Vertical shock lines
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(frontGloveX, -80);
+    ctx.lineTo(frontGloveX, frontGloveY + 12);
+    ctx.stroke();
+  } else if (action === 'block') {
+    // Tight protective clamshell guard
+    backGloveX = dir * 8;
+    backGloveY = -106;
+    frontGloveX = dir * 16;
+    frontGloveY = -108;
+
+    // Defensive Energy Shield Ring
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.75)';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(dir * 22, -108, 22 + Math.sin(time * 14) * 3, -Math.PI * 0.5, Math.PI * 0.5, dir < 0);
+    ctx.stroke();
+  } else if (action === 'taunt_crown') {
+    // Victory overhead double gloves
     backGloveX = -dir * 18;
-    backGloveY = -140;
-    gloveX = dir * 18;
-    gloveY = -140;
+    backGloveY = -142;
+    frontGloveX = dir * 18;
+    frontGloveY = -142;
 
     // Golden Champion Crown overhead
     ctx.fillStyle = '#f59e0b';
     ctx.beginPath();
     ctx.moveTo(-16, -145);
-    ctx.lineTo(-20, -162);
-    ctx.lineTo(-10, -153);
-    ctx.lineTo(0, -166);
-    ctx.lineTo(10, -153);
-    ctx.lineTo(20, -162);
+    ctx.lineTo(-20, -164);
+    ctx.lineTo(-10, -154);
+    ctx.lineTo(0, -168);
+    ctx.lineTo(10, -154);
+    ctx.lineTo(20, -164);
     ctx.lineTo(16, -145);
     ctx.closePath();
     ctx.fill();
@@ -619,7 +1189,7 @@ function drawBoxer(
     // Crown jewels
     ctx.fillStyle = '#ef4444';
     ctx.beginPath();
-    ctx.arc(0, -152, 3, 0, Math.PI * 2);
+    ctx.arc(0, -154, 3.5, 0, Math.PI * 2);
     ctx.fill();
 
     // Speech Bubble
@@ -627,20 +1197,20 @@ function drawBoxer(
     ctx.strokeStyle = '#eab308';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(-50, -195, 100, 26, 8);
+    ctx.roundRect(-50, -196, 100, 26, 8);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = '#713f12';
     ctx.font = '900 12px "Bungee", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('👑 CHAMPION!', 0, -178);
-  } else if (player.currentAction === 'taunt_flex') {
-    // Double Muscle Flex Arms!
+    ctx.fillText('👑 CHAMPION!', 0, -179);
+  } else if (action === 'taunt_flex') {
+    // Muscle Flex Arms
     backGloveX = -dir * 28;
     backGloveY = -120;
-    gloveX = dir * 28;
-    gloveY = -120;
+    frontGloveX = dir * 28;
+    frontGloveY = -120;
 
     // Muscle Flame Aura Ring
     ctx.strokeStyle = 'rgba(245, 158, 11, 0.7)';
@@ -662,12 +1232,12 @@ function drawBoxer(
     ctx.font = '900 12px "Bungee", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('💪 TOO EASY!', 0, -153);
-  } else if (player.currentAction === 'taunt_dance') {
-    // Disco Dance Wave Gloves
+  } else if (action === 'taunt_dance') {
+    // Disco Wave Gloves
     backGloveX = -dir * 22;
     backGloveY = -110 + Math.sin(time * 15) * 20;
-    gloveX = dir * 22;
-    gloveY = -90 - Math.sin(time * 15) * 20;
+    frontGloveX = dir * 22;
+    frontGloveY = -90 - Math.sin(time * 15) * 20;
 
     // Disco Sparkles
     for (let i = 0; i < 4; i++) {
@@ -693,7 +1263,7 @@ function drawBoxer(
     ctx.font = '900 12px "Bungee", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('🕺 DISCO KO!', 0, -153);
-  } else if (player.currentAction === 'taunt_shuffle') {
+  } else if (action === 'taunt_shuffle') {
     // Lightning speed lines
     ctx.strokeStyle = '#60a5fa';
     ctx.lineWidth = 2;
@@ -718,28 +1288,27 @@ function drawBoxer(
     ctx.font = '900 11px "Bungee", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('⚡ UNTOUCHABLE!', 0, -153);
+  } else {
+    // Idle: Front glove relaxed probing motion, rear glove tucked to chin
+    frontGloveX += Math.sin(time * 6) * 3;
+    frontGloveY += Math.cos(time * 5) * 2;
+    backGloveY += Math.sin(time * 4) * 2;
   }
 
-  // Draw Guarding / Back Arm Glove
-  ctx.fillStyle = gloveColor;
-  ctx.beginPath();
-  ctx.arc(backGloveX, backGloveY, 14, 0, Math.PI * 2);
-  ctx.fill();
+  // Draw Rear Arm & Glove (Guarding or punching)
+  renderBoxingGlove(ctx, backGloveX, backGloveY, gloveColor, dir, 14);
 
-  // Draw Front Arm Glove
-  ctx.fillStyle = gloveColor;
-  ctx.beginPath();
-  ctx.arc(gloveX, gloveY, 16, 0, Math.PI * 2);
-  ctx.fill();
+  // Draw Front Arm & Glove
+  renderBoxingGlove(ctx, frontGloveX, frontGloveY, gloveColor, dir, 16);
 
-  // Mini Overhead Health Bar in Canvas Context
+  // 7. Mini Overhead Ring Health Gauge
   const healthRatio = Math.max(0, Math.min(100, player.health)) / 100;
-  const barW = 44;
+  const barW = 46;
   const barH = 5;
-  const barX = -22;
-  const barY = -142;
+  const barX = -23;
+  const barY = -148;
 
-  // Health Bar Frame
+  // Background box
   ctx.fillStyle = isBeingHit ? '#7f1d1d' : 'rgba(15, 23, 42, 0.85)';
   ctx.strokeStyle = isBeingHit ? '#ef4444' : '#334155';
   ctx.lineWidth = isBeingHit ? 2 : 1;
@@ -748,7 +1317,7 @@ function drawBoxer(
   ctx.fill();
   ctx.stroke();
 
-  // Health Bar Fill
+  // Health fill
   if (healthRatio > 0) {
     ctx.fillStyle = isBeingHit ? '#ffffff' : dir === 1 ? '#ef4444' : '#3b82f6';
     ctx.beginPath();
@@ -756,24 +1325,49 @@ function drawBoxer(
     ctx.fill();
   }
 
-  // Hit spark lines and reaction
-  if (isBeingHit && !isKnockdown) {
-    ctx.strokeStyle = '#fde047';
-    ctx.lineWidth = 3;
-    for (let i = 0; i < 6; i++) {
-      const angle = (i * Math.PI) / 3 + (time % 1);
-      const length = 22 + Math.sin(time * 10 + i) * 8;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(angle) * 15, -115 + Math.sin(angle) * 15);
-      ctx.lineTo(Math.cos(angle) * (15 + length), -115 + Math.sin(angle) * (15 + length));
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = '#f87171';
-    ctx.font = '900 16px "Bungee", sans-serif';
-    ctx.fillText('💥 POW!', -25, -145);
-  }
-
   ctx.restore();
 }
 
+// Render 3D shaded rounded boxing glove with wrist tape wrap & leather highlight
+function renderBoxingGlove(
+  ctx: CanvasRenderingContext2D,
+  gx: number,
+  gy: number,
+  color: string,
+  dir: number,
+  radius: number
+) {
+  ctx.save();
+  ctx.translate(gx, gy);
+
+  // White athletic wrist tape wrap
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(-dir * (radius * 0.9), radius * 0.3, radius * 0.9, radius * 0.7);
+
+  // Tape red/black cross lace
+  ctx.strokeStyle = '#ef4444';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(-dir * (radius * 0.8), radius * 0.4);
+  ctx.lineTo(-dir * (radius * 0.2), radius * 0.8);
+  ctx.stroke();
+
+  // Main Rounded Glove Leather
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Distinct curved thumb pocket
+  ctx.beginPath();
+  ctx.arc(dir * (radius * 0.7), -radius * 0.2, radius * 0.48, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Top Glossy Light Highlight (Simulates shiny patent boxing leather)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.38)';
+  ctx.beginPath();
+  ctx.ellipse(-dir * 2, -radius * 0.45, radius * 0.5, radius * 0.25, -dir * 0.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
