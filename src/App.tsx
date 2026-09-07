@@ -290,6 +290,11 @@ export default function App() {
     currentAction: "idle",
   });
 
+  const p1Ref = useRef(p1);
+  const p2Ref = useRef(p2);
+  p1Ref.current = p1;
+  p2Ref.current = p2;
+
   // Analytics
   const [totalAnswered, setTotalAnswered] = useState<number>(0);
   const [correctCount, setCorrectCount] = useState<number>(0);
@@ -806,79 +811,194 @@ export default function App() {
     }
   }, [stage, finishReason]);
 
-  // AI Loop
+  // 🥊 AI BOT LOGIC: Humanized, challenging, balanced & anti-frustration
   useEffect(() => {
-    if (stage !== "in_game" || !p2.isAi) return;
+    if (stage !== "in_game" || !p2.isAi || !currentQuestion) return;
 
-    const delayMs =
-      aiDifficulty === "easy" ? 6000 : aiDifficulty === "normal" ? 4000 : 2500;
-    const accuracy =
-      aiDifficulty === "easy" ? 0.6 : aiDifficulty === "normal" ? 0.8 : 0.95;
+    let isSubscribed = true;
 
-    aiIntervalRef.current = setInterval(() => {
-      if (Math.random() < accuracy) {
-        audio.playPunchHit();
-        setLastHitBy("p2");
-        triggerScreenShake("light");
+    const scheduleNextAiAction = () => {
+      // 1. BASE REACTION / THINKING TIME (Milidetik)
+      // Disesuaikan agar manusiawi: tidak terlalu cepat agar pemain tidak frustasi,
+      // tetapi tetap memberi tekanan arcade yang kompetitif.
+      let baseDelay = 5000;
+      if (aiDifficulty === "easy") {
+        baseDelay = 6500; // 6.5 detik (memberikan ruang luas bagi anak-anak / pemula)
+      } else if (aiDifficulty === "normal") {
+        baseDelay = 4900; // 4.9 detik (kecepatan berhitung manusia yang seimbang)
+      } else {
+        baseDelay = 3900; // 3.9 detik (menantang & cepat, namun jauh lebih manusiawi dari 2.5s)
+      }
 
-        const punchTypes: ("jab" | "cross" | "hook" | "uppercut")[] = [
-          "jab",
-          "cross",
-          "hook",
-          "uppercut",
-        ];
-        const randomPunch =
-          punchTypes[Math.floor(Math.random() * punchTypes.length)];
+      // 2. PENYESUAIAN BERDASARKAN KOMPLEKSITAS SOAL
+      // Soal sulit membutuhkan waktu hitung sedikit lebih lama, mencerminkan lawan sungguhan
+      if (currentQuestion.isHardChallenge) {
+        baseDelay += 1400;
+      } else if (currentQuestion.difficulty === "hard") {
+        baseDelay += 900;
+      } else if (currentQuestion.difficulty === "medium") {
+        baseDelay += 400;
+      }
 
-        setP2((prev) => ({
-          ...prev,
-          score: prev.score + (currentQuestion?.scoreValue || 2),
-          currentAction: randomPunch,
-        }));
+      if (category === "algebra" || category === "roots" || category === "physics") {
+        baseDelay += 500;
+      } else if (category === "counting") {
+        baseDelay -= 300;
+      }
 
-        const baseAiDmg = activeDuration <= 60 ? 8 : activeDuration <= 300 ? 6 : 5;
+      // 3. MEKANIK KESEIMBANGAN & ANTI-FRUSTRASI (Dynamic Momentum)
+      // Jika HP Pemain sedang rendah (<= 35 HP), bot memberi kelonggaran waktu agar pemain
+      // tidak langsung ter-K.O. dan punya kesempatan comeback / heal (+15 HP saat combo 3x).
+      const currentP1 = p1Ref.current;
+      const currentP2 = p2Ref.current;
 
-        setP1((prev) => {
-          const newP1Health = Math.max(0, prev.health - baseAiDmg);
+      if (currentP1.health <= 35) {
+        baseDelay += 1000;
+      } else if (currentP1.combo >= 3 || (currentP1.score - currentP2.score) >= 12) {
+        // Jika pemain sedang memimpin jauh, bot lebih fokus dan sedikit lebih gesit
+        baseDelay -= 350;
+      }
 
-          // Cek apakah serangan Bot menyebabkan Knockout (K.O.) pada pemain
-          if (newP1Health <= 0) {
-            audio.playKnockout();
-            if (matchTimerRef.current) clearInterval(matchTimerRef.current);
-            if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
-            triggerScreenShake("heavy");
-            setFinishReason("ko_loss");
+      // 4. HUMAN JITTER (Variasi acak agar ritme tidak seperti mesin)
+      const jitter = (Math.random() - 0.5) * 600;
+      const minDelay =
+        aiDifficulty === "hard" ? 3200 : aiDifficulty === "normal" ? 4000 : 5200;
+      const finalDelay = Math.max(minDelay, Math.round(baseDelay + jitter));
 
-            setTimeout(() => {
-              setP2((bot) => ({ ...bot, currentAction: "taunt_crown" }));
-              setStage("game_over");
-            }, 600);
+      // 5. KALKULASI AKURASI BOT (Fair & Tidak Curang)
+      // Tidak dibuat terlalu tinggi agar pemain tidak merasa frustasi dicurangi bot.
+      let accuracy = 0.68; // Normal default 68%
+      if (aiDifficulty === "easy") {
+        accuracy = 0.52; // ~52% (sering ragu atau salah hitung)
+      } else if (aiDifficulty === "normal") {
+        accuracy = 0.68; // ~68% (seimbang, ada celah ~32% kesalahan untuk dimanfaatkan)
+      } else {
+        accuracy = 0.80; // ~80% (sulit dan tangguh, bukan 95% yang mustahil dikalahkan)
+      }
+
+      // Jika soal sulit, akurasi bot berkurang sedikit
+      if (currentQuestion.isHardChallenge || currentQuestion.difficulty === "hard") {
+        accuracy = Math.max(0.40, accuracy - 0.08);
+      }
+
+      // Jika HP pemain sekarat, bot memberi keringanan akurasi
+      if (currentP1.health <= 35) {
+        accuracy = Math.max(0.45, accuracy - 0.10);
+      }
+
+      aiIntervalRef.current = setTimeout(() => {
+        if (!isSubscribed) return;
+
+        const isSuccess = Math.random() < accuracy;
+
+        if (isSuccess) {
+          // --- BOT BERHASIL MENJAWAB SOAL ---
+          audio.playPunchHit();
+          setLastHitBy("p2");
+          triggerScreenShake("light");
+
+          const punchTypes: ("jab" | "cross" | "hook" | "uppercut")[] = [
+            "jab",
+            "cross",
+            "hook",
+            "uppercut",
+          ];
+          const randomPunch =
+            punchTypes[Math.floor(Math.random() * punchTypes.length)];
+
+          const nextBotCombo = p2Ref.current.combo + 1;
+          const scoreGained = currentQuestion.scoreValue || 2;
+
+          setP2((prev) => ({
+            ...prev,
+            score: prev.score + scoreGained,
+            combo: nextBotCombo,
+            currentAction: randomPunch,
+          }));
+
+          const baseAiDmg = activeDuration <= 60 ? 8 : activeDuration <= 300 ? 6 : 5;
+          const comboBonusDmg = nextBotCombo >= 4 ? 2 : 0;
+          const totalAiDmg = baseAiDmg + comboBonusDmg;
+
+          setP1((prev) => {
+            const newP1Health = Math.max(0, prev.health - totalAiDmg);
+
+            // Cek apakah serangan Bot menyebabkan Knockout (K.O.) pada pemain
+            if (newP1Health <= 0) {
+              audio.playKnockout();
+              if (matchTimerRef.current) clearInterval(matchTimerRef.current);
+              if (aiIntervalRef.current) clearTimeout(aiIntervalRef.current);
+              triggerScreenShake("heavy");
+              setFinishReason("ko_loss");
+
+              setTimeout(() => {
+                setP2((bot) => ({ ...bot, currentAction: "taunt_crown" }));
+                setStage("game_over");
+              }, 600);
+
+              return {
+                ...prev,
+                health: 0,
+                currentAction: "knockdown",
+              };
+            }
 
             return {
               ...prev,
-              health: 0,
-              currentAction: "knockdown",
+              health: newP1Health,
+              currentAction: "hit",
             };
-          }
+          });
 
-          return {
+          setTimeout(() => {
+            if (!isSubscribed) return;
+            setP1((p) => (p.currentAction === "hit" ? { ...p, currentAction: "idle" } : p));
+            setP2((p) => ({ ...p, currentAction: "idle" }));
+          }, 400);
+
+          // Pindah ke soal berikutnya
+          nextQuestion();
+        } else {
+          // --- BOT SALAH HITUNG / RAGU (MISS / BLOCK) ---
+          // Efek suara hembusan angin pukulan meleset
+          audio.playWhoosh();
+
+          // Bot masuk ke posisi bertahan (block), combo bot ter-reset ke 0
+          // Soal tetap terbuka untuk dijawab oleh pemain (tidak dicuri oleh bot)
+          setP2((prev) => ({
             ...prev,
-            health: newP1Health,
-            currentAction: "hit",
-          };
-        });
+            combo: 0,
+            currentAction: "block",
+          }));
 
-        setTimeout(() => {
-          setP1((p) => (p.currentAction === "hit" ? { ...p, currentAction: "idle" } : p));
-          setP2((p) => ({ ...p, currentAction: "idle" }));
-        }, 400);
+          // Kembalikan bot ke posisi idle setelah 500ms
+          setTimeout(() => {
+            if (!isSubscribed) return;
+            setP2((prev) =>
+              prev.currentAction === "block"
+                ? { ...prev, currentAction: "idle" }
+                : prev,
+            );
+          }, 500);
 
-        nextQuestion();
-      }
-    }, delayMs);
+          // Jeda sebelum bot mencoba berpikir ulang untuk soal yang sama
+          // Memberi kesempatan emas bagi pemain untuk mendahului bot
+          const retryDelay =
+            aiDifficulty === "hard" ? 3000 : aiDifficulty === "normal" ? 3800 : 4600;
+          aiIntervalRef.current = setTimeout(() => {
+            if (isSubscribed) {
+              scheduleNextAiAction();
+            }
+          }, retryDelay);
+        }
+      }, finalDelay);
+    };
+
+    scheduleNextAiAction();
 
     return () => {
-      if (aiIntervalRef.current) clearInterval(aiIntervalRef.current);
+      isSubscribed = false;
+      if (aiIntervalRef.current) clearTimeout(aiIntervalRef.current);
     };
   }, [
     stage,
@@ -888,6 +1008,7 @@ export default function App() {
     currentQuestion,
     nextQuestion,
     triggerScreenShake,
+    category,
   ]);
 
   // Submit Answer
