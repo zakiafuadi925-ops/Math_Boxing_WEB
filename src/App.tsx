@@ -858,30 +858,32 @@ export default function App() {
 
     const scheduleNextAiAction = () => {
       // 1. BASE REACTION / THINKING TIME (Milidetik)
-      // Disesuaikan agar manusiawi: tidak terlalu cepat agar pemain tidak frustasi,
-      // tetapi tetap memberi tekanan arcade yang kompetitif dan seru.
-      let baseDelay = 3400;
+      // Memberi tempo manusiawi yang adil dan santai agar pemain memiliki waktu membaca soal dan berhitung
+      let baseDelay = 5800; // 5.8 detik normal
       if (aiDifficulty === "easy") {
-        baseDelay = 4600; // 4.6 detik (ramah pemula & santai)
+        baseDelay = 8000; // 8.0 detik (sangat santai, ramah pemula & anak-anak)
       } else if (aiDifficulty === "normal") {
-        baseDelay = 3400; // 3.4 detik (kecepatan berhitung manusia yang seimbang)
+        baseDelay = 5800; // 5.8 detik (tempo berhitung manusia yang seimbang)
       } else {
-        baseDelay = 2400; // 2.4 detik (cepat, menantang dan kompetitif)
+        baseDelay = 4200; // 4.2 detik (menantang & kompetitif, namun tetap adil)
       }
 
       // 2. PENYESUAIAN BERDASARKAN KOMPLEKSITAS SOAL
+      // Soal rumit membutuhkan waktu membaca & berhitung lebih lama
       if (currentQuestion.isHardChallenge) {
-        baseDelay += 800;
+        baseDelay += 1800;
       } else if (currentQuestion.difficulty === "hard") {
-        baseDelay += 500;
+        baseDelay += 1200;
       } else if (currentQuestion.difficulty === "medium") {
-        baseDelay += 200;
+        baseDelay += 600;
       }
 
       if (category === "algebra" || category === "roots" || category === "physics") {
-        baseDelay += 300;
+        baseDelay += 1000;
+      } else if (category === "geometry") {
+        baseDelay += 600;
       } else if (category === "counting") {
-        baseDelay -= 200;
+        baseDelay -= 300;
       }
 
       // 3. MEKANIK KESEIMBANGAN & ANTI-FRUSTRASI (Dynamic Momentum)
@@ -889,37 +891,37 @@ export default function App() {
       const currentP2 = p2Ref.current;
 
       if (currentP1.health <= 35) {
-        // Pemain sekarat: beri waktu ekstra bagi pemain untuk bernapas & bertahan
-        baseDelay += 700;
+        // Pemain sekarat: beri waktu ekstra bagi pemain untuk bernapas & bertahan (+1.5 detik)
+        baseDelay += 1500;
       } else if (currentP1.combo >= 3 || (currentP1.score - currentP2.score) >= 12) {
-        // Jika pemain memimpin jauh, bot lebih fokus
-        baseDelay -= 250;
+        // Jika pemain memimpin jauh, bot sedikit lebih fokus
+        baseDelay -= 400;
       }
 
       // 4. HUMAN JITTER (Variasi acak agar ritme tidak seperti mesin)
-      const jitter = (Math.random() - 0.5) * 400;
+      const jitter = (Math.random() - 0.5) * 800;
       const minDelay =
-        aiDifficulty === "hard" ? 2000 : aiDifficulty === "normal" ? 2800 : 3800;
+        aiDifficulty === "hard" ? 3400 : aiDifficulty === "normal" ? 4800 : 6600;
       const finalDelay = Math.max(minDelay, Math.round(baseDelay + jitter));
 
       // 5. KALKULASI AKURASI BOT (Fair & Tidak Curang)
-      let accuracy = 0.72; // Normal default 72%
+      let accuracy = 0.68; // Normal default 68%
       if (aiDifficulty === "easy") {
-        accuracy = 0.55; // ~55% (sering ragu atau salah)
+        accuracy = 0.48; // ~48% (sering ragu atau salah hitung)
       } else if (aiDifficulty === "normal") {
-        accuracy = 0.72; // ~72% (seimbang, ada celah ~28% kesalahan untuk dimanfaatkan)
+        accuracy = 0.68; // ~68% (seimbang, ada peluang ~32% kesalahan untuk dimanfaatkan)
       } else {
-        accuracy = 0.84; // ~84% (tangguh tapi tetap ada celah manusiawi)
+        accuracy = 0.78; // ~78% (tangguh tapi tetap ada celah manusiawi)
       }
 
       // Jika soal sulit, akurasi bot berkurang sedikit
       if (currentQuestion.isHardChallenge || currentQuestion.difficulty === "hard") {
-        accuracy = Math.max(0.42, accuracy - 0.08);
+        accuracy = Math.max(0.40, accuracy - 0.10);
       }
 
       // Jika HP pemain sekarat, bot memberi sedikit keringanan akurasi
       if (currentP1.health <= 35) {
-        accuracy = Math.max(0.48, accuracy - 0.10);
+        accuracy = Math.max(0.42, accuracy - 0.12);
       }
 
       aiIntervalRef.current = setTimeout(() => {
@@ -991,10 +993,13 @@ export default function App() {
             if (!isSubscribed) return;
             setP1((p) => (p.currentAction === "hit" ? { ...p, currentAction: "idle" } : p));
             setP2((p) => ({ ...p, currentAction: "idle" }));
-          }, 400);
+          }, 550);
 
-          // Pindah ke soal berikutnya secara aman via ref
-          nextQuestionRef.current();
+          // Pindah ke soal berikutnya secara halus setelah animasi pukulan mendarat (500ms)
+          setTimeout(() => {
+            if (!isSubscribed) return;
+            nextQuestionRef.current();
+          }, 500);
         } else {
           // --- BOT SALAH HITUNG / RAGU (MISS / BLOCK) ---
           audio.playWhoosh();
@@ -1006,7 +1011,7 @@ export default function App() {
             currentAction: "block",
           }));
 
-          // Kembalikan bot ke posisi idle setelah 500ms
+          // Kembalikan bot ke posisi idle setelah 600ms
           setTimeout(() => {
             if (!isSubscribed) return;
             setP2((prev) =>
@@ -1014,11 +1019,12 @@ export default function App() {
                 ? { ...prev, currentAction: "idle" }
                 : prev,
             );
-          }, 500);
+          }, 600);
 
-          // Jeda sebelum bot mencoba berpikir ulang untuk soal yang sama
+          // Jeda santai sebelum bot mencoba berpikir ulang untuk soal yang sama
+          // Memberi kesempatan luas bagi pemain untuk mendahului bot
           const retryDelay =
-            aiDifficulty === "hard" ? 2200 : aiDifficulty === "normal" ? 2700 : 3400;
+            aiDifficulty === "hard" ? 2800 : aiDifficulty === "normal" ? 3800 : 4800;
           aiIntervalRef.current = setTimeout(() => {
             if (isSubscribed) {
               scheduleNextAiAction();

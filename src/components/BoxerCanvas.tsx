@@ -51,6 +51,49 @@ interface ComicBurst {
   color: string;
 }
 
+export interface BoxerKinematics {
+  shiftX: number;
+  shiftY: number;
+  torsoAngle: number;
+  headAngle: number;
+  backGloveX: number;
+  backGloveY: number;
+  frontGloveX: number;
+  frontGloveY: number;
+  recoilX: number;
+  recoilY: number;
+  recoilVelX: number;
+  recoilHead: number;
+  recoilHeadVel: number;
+  kneeFlex: number;
+  squashY: number;
+  shadowScale: number;
+  prevAction: string;
+}
+
+const createDefaultKinematics = (facing: 'left' | 'right'): BoxerKinematics => {
+  const dir = facing === 'right' ? 1 : -1;
+  return {
+    shiftX: 0,
+    shiftY: 0,
+    torsoAngle: 0,
+    headAngle: 0,
+    backGloveX: -dir * 14,
+    backGloveY: -86,
+    frontGloveX: dir * 22,
+    frontGloveY: -88,
+    recoilX: 0,
+    recoilY: 0,
+    recoilVelX: 0,
+    recoilHead: 0,
+    recoilHeadVel: 0,
+    kneeFlex: 0,
+    squashY: 1,
+    shadowScale: 1,
+    prevAction: 'idle',
+  };
+};
+
 export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
   p1,
   p2,
@@ -73,6 +116,10 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
   p1Ref.current = p1;
   p2Ref.current = p2;
   lastHitByRef.current = lastHitBy;
+
+  // Persistent procedural kinematics state (continuous interpolation across frames)
+  const p1KinematicsRef = useRef<BoxerKinematics>(createDefaultKinematics('right'));
+  const p2KinematicsRef = useRef<BoxerKinematics>(createDefaultKinematics('left'));
 
   const [popups, setPopups] = useState<DamagePopup[]>([]);
   const [p1HealthPulse, setP1HealthPulse] = useState(false);
@@ -123,11 +170,15 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
   const spawnHitFX = (targetX: number, targetY: number, isCrit: boolean, punchType: string, targetDir: number) => {
     shakeRef.current = isCrit ? 9 : 5;
 
-    // Trigger ring rope rebound
+    // Trigger ring rope rebound and smooth organic boxer recoil
     if (targetDir > 0) {
       ropeSpringRef.current.p2Vel += isCrit ? 16 : 10;
+      p2KinematicsRef.current.recoilVelX = isCrit ? 36 : 24;
+      p2KinematicsRef.current.recoilHeadVel = isCrit ? 1.8 : 1.2;
     } else {
       ropeSpringRef.current.p1Vel -= isCrit ? 16 : 10;
+      p1KinematicsRef.current.recoilVelX = -(isCrit ? 36 : 24);
+      p1KinematicsRef.current.recoilHeadVel = -(isCrit ? 1.8 : 1.2);
     }
 
     // Set comic burst
@@ -511,8 +562,10 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
         width * 0.32,
         matY + 12,
         curP1,
+        p1KinematicsRef.current,
         'right',
         time,
+        delta,
         curLastHitBy === 'p2'
       );
 
@@ -521,8 +574,10 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
         width * 0.68,
         matY + 12,
         curP2,
+        p2KinematicsRef.current,
         'left',
         time,
+        delta,
         curLastHitBy === 'p1'
       );
 
@@ -797,128 +852,330 @@ export const BoxerCanvas: React.FC<BoxerCanvasProps> = memo(({
 // ============================================================================
 // Enhanced Procedural Boxer Renderer (High Performance 2D Vector Primitives)
 // ============================================================================
+function renderArm(
+  ctx: CanvasRenderingContext2D,
+  shoulderX: number,
+  shoulderY: number,
+  gloveX: number,
+  gloveY: number,
+  skinTone: string,
+  dir: number,
+  isFrontArm: boolean
+) {
+  ctx.save();
+  const dx = gloveX - shoulderX;
+  const dy = gloveY - shoulderY;
+  const dist = Math.hypot(dx, dy);
+
+  // Natural elbow joint deflection:
+  // When glove is near body (guard/idle), elbow flexes down and out.
+  // When punching (dist is high), arm extends towards glove.
+  const maxReach = 92;
+  const bend = Math.max(3, 26 * (1 - Math.min(1, dist / maxReach)));
+
+  const midX = (shoulderX + gloveX) * 0.5;
+  const midY = (shoulderY + gloveY) * 0.5;
+  const nx = -dy / (dist || 1);
+  const ny = dx / (dist || 1);
+
+  const elbowX = midX + nx * bend * 0.38;
+  const elbowY = midY + Math.abs(ny) * bend * 0.82 + (isFrontArm ? 4 : 2);
+
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Muscular outline / shadow
+  ctx.strokeStyle = isFrontArm ? 'rgba(185, 28, 28, 0.28)' : 'rgba(15, 23, 42, 0.45)';
+  ctx.lineWidth = 14;
+  ctx.beginPath();
+  ctx.moveTo(shoulderX, shoulderY);
+  ctx.quadraticCurveTo(elbowX, elbowY, gloveX, gloveY);
+  ctx.stroke();
+
+  // Muscular arm body
+  ctx.strokeStyle = isFrontArm ? skinTone : '#f87171';
+  ctx.lineWidth = 11;
+  ctx.beginPath();
+  ctx.moveTo(shoulderX, shoulderY);
+  ctx.quadraticCurveTo(elbowX, elbowY, gloveX, gloveY);
+  ctx.stroke();
+
+  // Bicep / Deltoid sheen highlight
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo((shoulderX + elbowX) * 0.5, (shoulderY + elbowY) * 0.5 - 2);
+  ctx.lineTo(midX, midY - 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// ============================================================================
+// Enhanced Procedural Boxer Renderer (Continuous Kinematics & Articulated Limbs)
+// ============================================================================
 function drawEnhancedBoxer(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   player: PlayerState,
+  kin: BoxerKinematics,
   facing: 'left' | 'right',
   time: number,
+  delta: number,
   isBeingHit: boolean
 ) {
   const dir = facing === 'right' ? 1 : -1;
   const isKnockdown = player.currentAction === 'knockdown' || player.health <= 0;
   const action = player.currentAction;
+  const dt = Math.min(delta, 0.05);
 
-  ctx.save();
-  ctx.translate(x, y);
+  // 1. Recoil spring physics (elastic shock absorption from punches)
+  const springK = 34;
+  const springDamp = 0.82;
+  kin.recoilVelX += (-kin.recoilX * springK) * dt;
+  kin.recoilVelX *= Math.pow(springDamp, dt * 60);
+  kin.recoilX += kin.recoilVelX * dt * 25;
 
-  // Dynamic Procedural Sway & Bob-and-Weave
-  let torsoAngle = 0;
-  let headAngle = 0;
-  let shadowScale = 1;
+  kin.recoilHeadVel += (-kin.recoilHead * springK) * dt;
+  kin.recoilHeadVel *= Math.pow(springDamp, dt * 60);
+  kin.recoilHead += kin.recoilHeadVel * dt * 25;
+
+  // Add initial impulse when hit begins
+  if (isBeingHit && Math.abs(kin.recoilX) < 3) {
+    kin.recoilVelX = -dir * 24;
+    kin.recoilHeadVel = -dir * 1.3;
+  }
+
+  // 2. Pose targets for smooth exponential interpolation (LERP)
+  let targetShiftX = 0;
+  let targetShiftY = 0;
+  let targetTorsoAngle = 0;
+  let targetHeadAngle = 0;
+  let targetKneeFlex = 0;
+  let targetSquashY = 1;
+  let targetShadowScale = 1;
+
+  let targetBackGloveX = -dir * 14;
+  let targetBackGloveY = -86;
+  let targetFrontGloveX = dir * 22;
+  let targetFrontGloveY = -88;
 
   if (isKnockdown) {
-    // Fallen flat / dazed on mat
-    ctx.rotate((dir * Math.PI) / 2.6);
-    ctx.translate(dir * 15, 36);
-    shadowScale = 1.3;
+    // Fallen flat / dazed on canvas
+    targetTorsoAngle = (dir * Math.PI) / 2.5;
+    targetShiftX = dir * 20;
+    targetShiftY = 34;
+    targetShadowScale = 1.35;
+    targetBackGloveX = -dir * 10;
+    targetBackGloveY = -14;
+    targetFrontGloveX = dir * 18;
+    targetFrontGloveY = -8;
   } else if (action === 'taunt_crown') {
     // High Champion Victory Leap
-    const jump = Math.abs(Math.sin(time * 8)) * 18;
-    ctx.translate(0, -jump);
-    shadowScale = Math.max(0.6, 1 - jump / 35);
-  } else if (action === 'taunt_shuffle') {
-    // Lightning Ali Footwork Shuffle
-    const shuffleX = Math.sin(time * 22) * 16;
-    const shuffleY = Math.abs(Math.sin(time * 22)) * 5;
-    ctx.translate(shuffleX, -shuffleY);
-    torsoAngle = Math.sin(time * 22) * 0.1;
+    const jump = Math.abs(Math.sin(time * 8)) * 22;
+    targetShiftY = -jump;
+    targetShadowScale = Math.max(0.6, 1 - jump / 40);
+    targetBackGloveX = -dir * 18;
+    targetBackGloveY = -142;
+    targetFrontGloveX = dir * 18;
+    targetFrontGloveY = -142;
+  } else if (action === 'taunt_flex') {
+    // Muscle flex arms
+    targetBackGloveX = -dir * 28;
+    targetBackGloveY = -120;
+    targetFrontGloveX = dir * 28;
+    targetFrontGloveY = -120;
+    targetKneeFlex = 4;
   } else if (action === 'taunt_dance') {
-    // Groovy Disco Torso Roll
-    const danceX = Math.sin(time * 12) * 12;
-    const danceY = Math.cos(time * 12) * 6;
-    ctx.translate(danceX, danceY);
-    torsoAngle = Math.sin(time * 12) * 0.15;
-  } else if (action === 'uppercut') {
-    // Uppercut launching puncher slightly upward
-    ctx.translate(0, -10);
-    shadowScale = 0.8;
-    torsoAngle = -dir * 0.12;
-  } else if (action === 'cross') {
-    // Deep forward leaning cross
-    ctx.translate(dir * 12, 2);
-    torsoAngle = dir * 0.14;
-  } else if (action === 'hook') {
-    // Torso twist hook
-    torsoAngle = -dir * 0.1;
+    // Disco wave
+    targetShiftX = Math.sin(time * 12) * 14;
+    targetShiftY = Math.cos(time * 12) * 6;
+    targetTorsoAngle = Math.sin(time * 12) * 0.14;
+    targetBackGloveX = -dir * 22;
+    targetBackGloveY = -110 + Math.sin(time * 15) * 20;
+    targetFrontGloveX = dir * 22;
+    targetFrontGloveY = -90 - Math.sin(time * 15) * 20;
+  } else if (action === 'taunt_shuffle') {
+    // Lightning Ali Shuffle
+    targetShiftX = Math.sin(time * 20) * 16;
+    targetShiftY = -Math.abs(Math.sin(time * 20)) * 5;
+    targetTorsoAngle = Math.sin(time * 20) * 0.08;
+    targetKneeFlex = 3;
   } else if (action === 'jab') {
-    // Quick snap forward
-    ctx.translate(dir * 8, 0);
+    // Snappy straight jab
+    targetFrontGloveX = dir * 90;
+    targetFrontGloveY = -94;
+    targetBackGloveX = -dir * 12;
+    targetBackGloveY = -86;
+    targetShiftX = dir * 14;
+    targetTorsoAngle = dir * 0.12;
+    targetKneeFlex = 2;
+  } else if (action === 'cross') {
+    // Power rear cross driven by hip rotation
+    targetBackGloveX = dir * 94;
+    targetBackGloveY = -92;
+    targetFrontGloveX = dir * 10;
+    targetFrontGloveY = -80;
+    targetShiftX = dir * 16;
+    targetTorsoAngle = dir * 0.20;
+    targetKneeFlex = 3;
+  } else if (action === 'hook') {
+    // Wide horizontal hook with torque
+    targetFrontGloveX = dir * 78;
+    targetFrontGloveY = -100;
+    targetBackGloveX = -dir * 10;
+    targetBackGloveY = -84;
+    targetShiftX = dir * 8;
+    targetTorsoAngle = -dir * 0.15;
+  } else if (action === 'uppercut') {
+    // Explosive vertical uppercut
+    targetFrontGloveX = dir * 54;
+    targetFrontGloveY = -132;
+    targetBackGloveX = -dir * 10;
+    targetBackGloveY = -82;
+    targetShiftY = -12;
+    targetTorsoAngle = -dir * 0.14;
+    targetSquashY = 1.08;
+    targetShadowScale = 0.85;
+  } else if (action === 'block') {
+    // Clamshell protective guard
+    targetBackGloveX = dir * 6;
+    targetBackGloveY = -104;
+    targetFrontGloveX = dir * 16;
+    targetFrontGloveY = -106;
+    targetShiftY = 4;
+    targetTorsoAngle = dir * 0.05;
+    targetKneeFlex = 5;
   } else {
-    // Natural Boxing Stance: Rhythmic figure-8 Bob & Weave
-    const bobY = Math.sin(time * 5) * 3.5;
-    const swayX = Math.cos(time * 2.5) * 2;
-    ctx.translate(swayX, bobY);
-    torsoAngle = (swayX / 20) * dir;
+    // Natural Athletic Boxing Bounce & Footwork Rhythm
+    const bounceSpeed = 5.2;
+    const bouncePhase = time * bounceSpeed;
+    const bobY = Math.abs(Math.sin(bouncePhase)) * 4.0; // Knee bounce
+    const weightShift = Math.sin(time * 2.6) * 3.2; // Stance weight transfer
+
+    targetShiftX = weightShift;
+    targetShiftY = bobY;
+    targetTorsoAngle = dir * (weightShift / 32);
+    targetHeadAngle = -dir * (weightShift / 48);
+    targetKneeFlex = bobY * 1.5;
+    targetSquashY = 1 - (bobY / 85);
+
+    targetBackGloveX = -dir * 14;
+    targetBackGloveY = -86 + Math.sin(time * 4.6) * 2;
+    targetFrontGloveX = dir * 22 + Math.cos(time * 5.2) * 3.2;
+    targetFrontGloveY = -88 + Math.sin(time * 5.5) * 2.5;
   }
 
-  // Heavy Hit-Reaction Snap
-  if (isBeingHit && !isKnockdown) {
-    const hitSnapX = -dir * (8 + Math.random() * 6);
-    const hitSnapY = (Math.random() - 0.5) * 6;
-    ctx.translate(hitSnapX, hitSnapY);
-    headAngle = -dir * 0.28;
-    torsoAngle = -dir * 0.16;
-  }
+  // 3. Smooth Exponential Interpolation (Zero Snap, 100% Fluidity)
+  const isPunching = action === 'jab' || action === 'cross' || action === 'hook' || action === 'uppercut';
+  const lerpSpeed = isPunching ? 28 : 14;
+  const lerpFactor = 1 - Math.exp(-lerpSpeed * dt);
 
-  // 1. Dynamic Floor Shadow (Scales with jumps and falls)
+  kin.shiftX += (targetShiftX - kin.shiftX) * lerpFactor;
+  kin.shiftY += (targetShiftY - kin.shiftY) * lerpFactor;
+  kin.torsoAngle += (targetTorsoAngle - kin.torsoAngle) * lerpFactor;
+  kin.headAngle += (targetHeadAngle - kin.headAngle) * lerpFactor;
+  kin.kneeFlex += (targetKneeFlex - kin.kneeFlex) * lerpFactor;
+  kin.squashY += (targetSquashY - kin.squashY) * lerpFactor;
+  kin.shadowScale += (targetShadowScale - kin.shadowScale) * lerpFactor;
+
+  // Gloves: snappy extension on strike, silky elastic return to guard
+  const gloveSpeed = isPunching ? 32 : 16;
+  const gloveFactor = 1 - Math.exp(-gloveSpeed * dt);
+  kin.backGloveX += (targetBackGloveX - kin.backGloveX) * gloveFactor;
+  kin.backGloveY += (targetBackGloveY - kin.backGloveY) * gloveFactor;
+  kin.frontGloveX += (targetFrontGloveX - kin.frontGloveX) * gloveFactor;
+  kin.frontGloveY += (targetFrontGloveY - kin.frontGloveY) * gloveFactor;
+
+  // 4. Begin Dynamic Canvas Transforms
+  ctx.save();
+  ctx.translate(x + kin.shiftX + kin.recoilX, y + kin.shiftY + kin.recoilY);
+  ctx.scale(1, kin.squashY);
+
+  // Dynamic Floor Shadow (Scales with jumps and falls)
   ctx.fillStyle = 'rgba(0, 0, 0, 0.32)';
   ctx.beginPath();
-  ctx.ellipse(0, 24, 34 * shadowScale, 11 * shadowScale, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 24, 34 * kin.shadowScale, 11 * kin.shadowScale, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // 2. Legs & Boxing Boots
-  // Rear Leg (Staggered back in athletic stance)
-  ctx.fillStyle = '#1e293b';
+  const skinTone = '#fca5a5';
+  const trunksColor = player.avatarColor || (dir === 1 ? '#ef4444' : '#3b82f6');
+  const gloveColor = player.glovesColor || (dir === 1 ? '#dc2626' : '#2563eb');
+
+  // Shoulders on torso
+  const rearShoulderX = -dir * 16;
+  const rearShoulderY = -92;
+  const frontShoulderX = dir * 14;
+  const frontShoulderY = -92;
+
+  // Step A: Draw Rear Arm & Glove (Back layer for realistic depth)
+  renderArm(ctx, rearShoulderX, rearShoulderY, kin.backGloveX, kin.backGloveY, skinTone, dir, false);
+  renderBoxingGlove(ctx, kin.backGloveX, kin.backGloveY, gloveColor, dir, 14);
+
+  // Step B: Articulated Legs & Dynamic Knee Flex
+  const rearHipX = -dir * 14;
+  const rearHipY = -24;
+  const rearKneeX = -dir * (18 + kin.kneeFlex * 0.4);
+  const rearKneeY = -4 + kin.kneeFlex * 0.3;
+  const rearBootX = -dir * 18;
+  const rearBootY = 18;
+
+  const frontHipX = dir * 8;
+  const frontHipY = -24;
+  const frontKneeX = dir * (14 + kin.kneeFlex * 0.5);
+  const frontKneeY = -3 + kin.kneeFlex * 0.4;
+  const frontBootX = dir * 12;
+  const frontBootY = 18;
+
+  // Rear leg
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 12;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
   ctx.beginPath();
-  ctx.roundRect(-dir * 20, -16, 13, 36, 4);
-  ctx.fill();
+  ctx.moveTo(rearHipX, rearHipY);
+  ctx.lineTo(rearKneeX, rearKneeY);
+  ctx.lineTo(rearBootX, rearBootY);
+  ctx.stroke();
 
-  // Front Leg (Planted forward)
+  // Front leg
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 13;
   ctx.beginPath();
-  ctx.roundRect(dir * 6, -18, 13, 38, 4);
-  ctx.fill();
+  ctx.moveTo(frontHipX, frontHipY);
+  ctx.lineTo(frontKneeX, frontKneeY);
+  ctx.lineTo(frontBootX, frontBootY);
+  ctx.stroke();
 
-  // Boxing Boots (Contrasting high-top laces & rubber ring sole)
+  // Boxing Boots
   // Rear Boot
   ctx.fillStyle = '#0f172a';
   ctx.beginPath();
-  ctx.roundRect(-dir * 24, 15, 20, 13, [3, 6, 2, 2]);
+  ctx.roundRect(rearBootX - 8, rearBootY - 3, 20, 13, [3, 6, 2, 2]);
   ctx.fill();
   ctx.fillStyle = '#f8fafc'; // White boxing boot ring sole
-  ctx.fillRect(-dir * 24, 25, 20, 3);
+  ctx.fillRect(rearBootX - 8, rearBootY + 7, 20, 3);
 
   // Front Boot
   ctx.fillStyle = '#0f172a';
   ctx.beginPath();
-  ctx.roundRect(dir * 2, 16, 22, 13, [6, 3, 2, 2]);
+  ctx.roundRect(frontBootX - 10, frontBootY - 2, 22, 13, [6, 3, 2, 2]);
   ctx.fill();
   ctx.fillStyle = '#f8fafc';
-  ctx.fillRect(dir * 2, 26, 22, 3);
+  ctx.fillRect(frontBootX - 10, frontBootY + 8, 22, 3);
 
   // Boot Laces accent
   ctx.strokeStyle = '#94a3b8';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(dir * 6, 18);
-  ctx.lineTo(dir * 14, 22);
-  ctx.moveTo(dir * 14, 18);
-  ctx.lineTo(dir * 6, 22);
+  ctx.moveTo(frontBootX - 4, frontBootY);
+  ctx.lineTo(frontBootX + 4, frontBootY + 4);
+  ctx.moveTo(frontBootX + 4, frontBootY);
+  ctx.lineTo(frontBootX - 4, frontBootY + 4);
   ctx.stroke();
 
-  // 3. Boxing Trunks (Custom avatar color + side athletic stripe)
-  const trunksColor = player.avatarColor || (dir === 1 ? '#ef4444' : '#3b82f6');
+  // Step C: Boxing Trunks & Championship Belt
   ctx.fillStyle = trunksColor;
   ctx.beginPath();
   ctx.roundRect(-24, -48, 48, 35, [2, 2, 4, 4]);
@@ -936,18 +1193,18 @@ function drawEnhancedBoxer(
   ctx.fillStyle = '#fbbf24';
   ctx.fillRect(-4, -47, 8, 8);
 
-  // 4. Torso & Musculature Definition
+  // Step D: Torso & Musculature Definition
   ctx.save();
-  ctx.rotate(torsoAngle);
+  ctx.rotate(kin.torsoAngle);
 
-  // Skin tone base
-  const skinTone = '#fca5a5';
+  // Skin tone base with subtle breathing
+  const breath = Math.sin(time * 3) * 0.5;
   ctx.fillStyle = skinTone;
   ctx.beginPath();
-  ctx.roundRect(-22, -98, 44, 52, 8);
+  ctx.roundRect(-22 - breath * 0.5, -98, 44 + breath, 52, 8);
   ctx.fill();
 
-  // Athletic muscle contours (peck shadow & abdominal shading lines)
+  // Muscle contours
   ctx.strokeStyle = 'rgba(185, 28, 28, 0.22)';
   ctx.lineWidth = 2;
   // Chest pecks
@@ -957,7 +1214,7 @@ function drawEnhancedBoxer(
   ctx.beginPath();
   ctx.arc(8, -82, 9, Math.PI * 0.15, Math.PI);
   ctx.stroke();
-  // Abdominal midline & six-pack lines
+  // Abdominal midline
   ctx.beginPath();
   ctx.moveTo(0, -74);
   ctx.lineTo(0, -52);
@@ -967,10 +1224,10 @@ function drawEnhancedBoxer(
   ctx.lineTo(9, -56);
   ctx.stroke();
 
-  // 5. Head & Facial Expressions
+  // Step E: Head & Facial Expressions
   ctx.save();
   ctx.translate(0, -116);
-  ctx.rotate(headAngle);
+  ctx.rotate(kin.headAngle + kin.recoilHead);
 
   // Head base
   ctx.fillStyle = skinTone;
@@ -1004,25 +1261,23 @@ function drawEnhancedBoxer(
   ctx.arc(dir * 4, -12, 6, 0, Math.PI);
   ctx.fill();
 
-  // Dynamic Animated Eyes & Mouth Expressions
+  // Animated Eyes & Mouth Expressions
   if (isKnockdown) {
     // Cartoon K.O. "X X" eyes
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 2.5;
-    // Eye 1
     ctx.beginPath();
     ctx.moveTo(dir * 5 - 3, -4);
     ctx.lineTo(dir * 5 + 3, 2);
     ctx.moveTo(dir * 5 + 3, -4);
     ctx.lineTo(dir * 5 - 3, 2);
-    // Eye 2
     ctx.moveTo(dir * 14 - 3, -4);
     ctx.lineTo(dir * 14 + 3, 2);
     ctx.moveTo(dir * 14 + 3, -4);
     ctx.lineTo(dir * 14 - 3, 2);
     ctx.stroke();
 
-    // Dazed open tongue/mouth
+    // Dazed open mouth
     ctx.fillStyle = '#991b1b';
     ctx.beginPath();
     ctx.ellipse(dir * 9, 9, 4, 3, 0, 0, Math.PI * 2);
@@ -1049,16 +1304,16 @@ function drawEnhancedBoxer(
     ctx.ellipse(dir * 8, -1, 3.5, 2, dir * 0.2, 0, Math.PI * 2);
     ctx.fill();
 
-    // Determined clenched jaw / mouthguard
+    // Mouthguard clenched
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(dir * 5, 6, 8, 3);
   } else {
-    // Idle: Focused intense boxing eyes
+    // Focused intense boxing eyes
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
     ctx.arc(dir * 8, -1, 3.5, 0, Math.PI * 2);
     ctx.fill();
-    // Eye light reflection pupil
+    // Reflection pupil
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
     ctx.arc(dir * 9, -2, 1.2, 0, Math.PI * 2);
@@ -1072,14 +1327,14 @@ function drawEnhancedBoxer(
     ctx.lineTo(dir * 13, -4);
     ctx.stroke();
 
-    // Subtle confident smirk
+    // Confident smirk
     ctx.beginPath();
     ctx.moveTo(dir * 5, 8);
     ctx.lineTo(dir * 11, 7);
     ctx.stroke();
   }
 
-  // Knockdown Orbiting Dizzy Stars (3D elliptical orbit above head)
+  // Knockdown Orbiting Dizzy Stars
   if (isKnockdown) {
     for (let sIdx = 0; sIdx < 3; sIdx++) {
       const starAngle = time * 6 + (sIdx * Math.PI * 2) / 3;
@@ -1095,46 +1350,28 @@ function drawEnhancedBoxer(
   ctx.restore(); // Head restored
   ctx.restore(); // Torso restored
 
-  // 6. Boxing Gloves, Arms & Kinematics
-  const gloveColor = player.glovesColor || (dir === 1 ? '#dc2626' : '#2563eb');
+  // Step F: Draw Front Arm & Glove (Foreground layer)
+  renderArm(ctx, frontShoulderX, frontShoulderY, kin.frontGloveX, kin.frontGloveY, skinTone, dir, true);
+  renderBoxingGlove(ctx, kin.frontGloveX, kin.frontGloveY, gloveColor, dir, 16);
 
-  let backGloveX = -dir * 14;
-  let backGloveY = -86;
-  let frontGloveX = dir * 20;
-  let frontGloveY = -88;
-
-  // Render Punch Trajectories & Weaponized Kinetic Trails
+  // Step G: Punch Trajectory Effects & Visual Accents
   if (action === 'jab') {
-    // Straight lightning jab
-    frontGloveX = dir * 88;
-    frontGloveY = -96;
-
     // Straight speed motion lines
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
     ctx.lineWidth = 5;
     ctx.beginPath();
     ctx.moveTo(dir * 22, -90);
-    ctx.lineTo(frontGloveX - dir * 10, frontGloveY);
+    ctx.lineTo(kin.frontGloveX - dir * 10, kin.frontGloveY);
     ctx.stroke();
   } else if (action === 'cross') {
-    // Powerful rear cross punch (rear glove fires through front)
-    backGloveX = dir * 92;
-    backGloveY = -94;
-    frontGloveX = dir * 12;
-    frontGloveY = -78;
-
     // Fiery speed streak
     ctx.strokeStyle = 'rgba(251, 191, 36, 0.85)';
     ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.moveTo(-dir * 10, -84);
-    ctx.lineTo(backGloveX - dir * 10, backGloveY);
+    ctx.lineTo(kin.backGloveX - dir * 10, kin.backGloveY);
     ctx.stroke();
   } else if (action === 'hook') {
-    // Wide horizontal sweeping hook
-    frontGloveX = dir * 80;
-    frontGloveY = -102;
-
     // Curved crescent swoosh trail
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
     ctx.lineWidth = 6;
@@ -1142,24 +1379,14 @@ function drawEnhancedBoxer(
     ctx.arc(dir * 20, -96, 55, dir > 0 ? -Math.PI * 0.4 : -Math.PI * 0.6, dir > 0 ? 0.1 : Math.PI * 1.1);
     ctx.stroke();
   } else if (action === 'uppercut') {
-    // Explosive vertical upward thrust
-    frontGloveX = dir * 55;
-    frontGloveY = -130; // Driving straight up!
-
     // Vertical shock lines
     ctx.strokeStyle = '#fde047';
     ctx.lineWidth = 5;
     ctx.beginPath();
-    ctx.moveTo(frontGloveX, -80);
-    ctx.lineTo(frontGloveX, frontGloveY + 12);
+    ctx.moveTo(kin.frontGloveX, -80);
+    ctx.lineTo(kin.frontGloveX, kin.frontGloveY + 12);
     ctx.stroke();
   } else if (action === 'block') {
-    // Tight protective clamshell guard
-    backGloveX = dir * 8;
-    backGloveY = -106;
-    frontGloveX = dir * 16;
-    frontGloveY = -108;
-
     // Defensive Energy Shield Ring
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.75)';
     ctx.lineWidth = 4;
@@ -1167,12 +1394,6 @@ function drawEnhancedBoxer(
     ctx.arc(dir * 22, -108, 22 + Math.sin(time * 14) * 3, -Math.PI * 0.5, Math.PI * 0.5, dir < 0);
     ctx.stroke();
   } else if (action === 'taunt_crown') {
-    // Victory overhead double gloves
-    backGloveX = -dir * 18;
-    backGloveY = -142;
-    frontGloveX = dir * 18;
-    frontGloveY = -142;
-
     // Golden Champion Crown overhead
     ctx.fillStyle = '#f59e0b';
     ctx.beginPath();
@@ -1186,7 +1407,7 @@ function drawEnhancedBoxer(
     ctx.closePath();
     ctx.fill();
 
-    // Crown jewels
+    // Crown jewel
     ctx.fillStyle = '#ef4444';
     ctx.beginPath();
     ctx.arc(0, -154, 3.5, 0, Math.PI * 2);
@@ -1206,12 +1427,6 @@ function drawEnhancedBoxer(
     ctx.textAlign = 'center';
     ctx.fillText('👑 CHAMPION!', 0, -179);
   } else if (action === 'taunt_flex') {
-    // Muscle Flex Arms
-    backGloveX = -dir * 28;
-    backGloveY = -120;
-    frontGloveX = dir * 28;
-    frontGloveY = -120;
-
     // Muscle Flame Aura Ring
     ctx.strokeStyle = 'rgba(245, 158, 11, 0.7)';
     ctx.lineWidth = 4;
@@ -1233,12 +1448,6 @@ function drawEnhancedBoxer(
     ctx.textAlign = 'center';
     ctx.fillText('💪 TOO EASY!', 0, -153);
   } else if (action === 'taunt_dance') {
-    // Disco Wave Gloves
-    backGloveX = -dir * 22;
-    backGloveY = -110 + Math.sin(time * 15) * 20;
-    frontGloveX = dir * 22;
-    frontGloveY = -90 - Math.sin(time * 15) * 20;
-
     // Disco Sparkles
     for (let i = 0; i < 4; i++) {
       const spAngle = (i * Math.PI) / 2 + time * 4;
@@ -1288,20 +1497,9 @@ function drawEnhancedBoxer(
     ctx.font = '900 11px "Bungee", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('⚡ UNTOUCHABLE!', 0, -153);
-  } else {
-    // Idle: Front glove relaxed probing motion, rear glove tucked to chin
-    frontGloveX += Math.sin(time * 6) * 3;
-    frontGloveY += Math.cos(time * 5) * 2;
-    backGloveY += Math.sin(time * 4) * 2;
   }
 
-  // Draw Rear Arm & Glove (Guarding or punching)
-  renderBoxingGlove(ctx, backGloveX, backGloveY, gloveColor, dir, 14);
-
-  // Draw Front Arm & Glove
-  renderBoxingGlove(ctx, frontGloveX, frontGloveY, gloveColor, dir, 16);
-
-  // 7. Mini Overhead Ring Health Gauge
+  // Step H: Mini Overhead Ring Health Gauge
   const healthRatio = Math.max(0, Math.min(100, player.health)) / 100;
   const barW = 46;
   const barH = 5;
