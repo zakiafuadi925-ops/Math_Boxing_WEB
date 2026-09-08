@@ -33,7 +33,7 @@ import { ComboTracker, getComboMultiplier } from "./components/ComboTracker";
 import { EmoteBar } from "./components/EmoteBar";
 import { calculateMatchScore, MatchScoreBreakdown } from "./utils/scoreCalculator";
 
-import { Timer, LogOut, Maximize2, Minimize2 } from "lucide-react";
+import { Timer, LogOut, Maximize2, Minimize2, Sparkles } from "lucide-react";
 
 export default function App() {
   // Navigation & Game State
@@ -70,6 +70,7 @@ export default function App() {
   // Fullscreen Detection & Toggle (Optimized for iOS, iPhone 15 & Desktop)
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [isSimulatedFullscreen, setIsSimulatedFullscreen] = useState<boolean>(false);
+  const [showIosFullscreenHint, setShowIosFullscreenHint] = useState<boolean>(false);
 
   useEffect(() => {
     const updateFs = () => {
@@ -119,13 +120,26 @@ export default function App() {
       const isCurrentlyFs = isFullscreen || isSimulatedFullscreen;
 
       if (!isCurrentlyFs) {
-        // Try native fullscreen first
-        if (docEl.requestFullscreen) {
+        const isIOS = typeof navigator !== "undefined" && (
+          /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+        );
+
+        if (isIOS) {
+          // iPhone/iPad Safari does not support Element.requestFullscreen for HTML elements.
+          // Activate simulated fullscreen directly with smooth viewport immersion.
+          setIsSimulatedFullscreen(true);
+          setIsFullscreen(true);
+          setShowIosFullscreenHint(true);
+          setTimeout(() => {
+            setShowIosFullscreenHint(false);
+          }, 6000);
+        } else if (docEl.requestFullscreen) {
           docEl.requestFullscreen().then(() => {
             setIsFullscreen(true);
             setIsSimulatedFullscreen(false);
           }).catch(() => {
-            // iOS Safari rejects requestFullscreen or lacks support: Fallback to simulated fullscreen
+            // Rejects or lacks support: Fallback to simulated fullscreen
             setIsSimulatedFullscreen(true);
             setIsFullscreen(true);
           });
@@ -138,7 +152,7 @@ export default function App() {
             setIsFullscreen(true);
           }
         } else {
-          // iOS Safari fallback
+          // iOS Safari / general fallback
           setIsSimulatedFullscreen(true);
           setIsFullscreen(true);
         }
@@ -147,6 +161,7 @@ export default function App() {
         // Exit fullscreen
         setIsSimulatedFullscreen(false);
         setIsFullscreen(false);
+        setShowIosFullscreenHint(false);
         if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement) {
           if (doc.exitFullscreen) {
             doc.exitFullscreen().catch(() => {});
@@ -295,6 +310,12 @@ export default function App() {
   p1Ref.current = p1;
   p2Ref.current = p2;
 
+  const timeRemainingRef = useRef(timeRemaining);
+  timeRemainingRef.current = timeRemaining;
+
+  const activeDurationRef = useRef(activeDuration);
+  activeDurationRef.current = activeDuration;
+
   // Analytics
   const [totalAnswered, setTotalAnswered] = useState<number>(0);
   const [correctCount, setCorrectCount] = useState<number>(0);
@@ -302,6 +323,12 @@ export default function App() {
   const [highestCombo, setHighestCombo] = useState<number>(0);
   const [lastBonusPoints, setLastBonusPoints] = useState<number | null>(null);
   const [levelingStreak, setLevelingStreak] = useState<number>(0); // Progress: 0 -> 1 -> 2 (Soal Sulit)
+
+  const totalAnsweredRef = useRef(totalAnswered);
+  totalAnsweredRef.current = totalAnswered;
+
+  const levelingStreakRef = useRef(levelingStreak);
+  levelingStreakRef.current = levelingStreak;
   const [answerHistory, setAnswerHistory] = useState<AnswerHistoryPoint[]>([]);
   const [rematchStatus, setRematchStatus] = useState<
     "idle" | "requested_by_me" | "requested_by_opponent"
@@ -375,12 +402,21 @@ export default function App() {
 
   const nextQuestion = useCallback(
     (customStreak?: number, customEdu?: EducationLevel) => {
-      const currentStreak = customStreak !== undefined ? customStreak : levelingStreak;
+      const currentStreak =
+        customStreak !== undefined ? customStreak : levelingStreakRef.current;
       const isHardChallenge = currentStreak >= 2;
       const diff = isHardChallenge
         ? "hard"
-        : getDifficultyForProgress(timeRemaining, activeDuration, totalAnswered);
-      const eduToUse = customEdu || activeEducationLevelRef.current || activeEducationLevel || "sd";
+        : getDifficultyForProgress(
+            timeRemainingRef.current,
+            activeDurationRef.current,
+            totalAnsweredRef.current,
+          );
+      const eduToUse =
+        customEdu ||
+        activeEducationLevelRef.current ||
+        activeEducationLevel ||
+        "sd";
       const q = MathGenerator.generateQuestion(
         category,
         diff,
@@ -391,16 +427,11 @@ export default function App() {
       setCurrentQuestion(q);
       return q;
     },
-    [
-      category,
-      getDifficultyForProgress,
-      timeRemaining,
-      activeDuration,
-      totalAnswered,
-      levelingStreak,
-      activeEducationLevel,
-    ],
+    [category, getDifficultyForProgress, activeEducationLevel],
   );
+
+  const nextQuestionRef = useRef(nextQuestion);
+  nextQuestionRef.current = nextQuestion;
 
   // Start Match logic
   const startMatch = useCallback(
@@ -458,9 +489,11 @@ export default function App() {
       }));
 
       const isBotMatch =
-        Boolean(roomData?.isBot) ||
-        Boolean(roomData?.roomId?.startsWith("bot_")) ||
-        mode === "practice";
+        roomData?.isBot !== undefined
+          ? roomData.isBot
+          : Boolean(roomData?.roomId?.startsWith("bot_")) ||
+            mode === "practice" ||
+            !roomData?.roomId;
       const isMultiplayer = !isBotMatch && (mode === "quick_match" || mode === "private_room");
 
       setP2((prev) => ({
@@ -700,7 +733,13 @@ export default function App() {
     if (selectedMode === "quick_match" || selectedMode === "private_room") {
       setStage("matchmaking");
     } else {
-      startMatch({ duration: dur, educationLevel: edu });
+      startMatch({
+        duration: dur,
+        educationLevel: edu,
+        category: selectedCat,
+        isBot: true,
+        opponentName: `Bot AI (${(diff || aiDifficulty).toUpperCase()})`,
+      });
     }
   };
 
@@ -820,70 +859,67 @@ export default function App() {
     const scheduleNextAiAction = () => {
       // 1. BASE REACTION / THINKING TIME (Milidetik)
       // Disesuaikan agar manusiawi: tidak terlalu cepat agar pemain tidak frustasi,
-      // tetapi tetap memberi tekanan arcade yang kompetitif.
-      let baseDelay = 5000;
+      // tetapi tetap memberi tekanan arcade yang kompetitif dan seru.
+      let baseDelay = 3400;
       if (aiDifficulty === "easy") {
-        baseDelay = 6500; // 6.5 detik (memberikan ruang luas bagi anak-anak / pemula)
+        baseDelay = 4600; // 4.6 detik (ramah pemula & santai)
       } else if (aiDifficulty === "normal") {
-        baseDelay = 4900; // 4.9 detik (kecepatan berhitung manusia yang seimbang)
+        baseDelay = 3400; // 3.4 detik (kecepatan berhitung manusia yang seimbang)
       } else {
-        baseDelay = 3900; // 3.9 detik (menantang & cepat, namun jauh lebih manusiawi dari 2.5s)
+        baseDelay = 2400; // 2.4 detik (cepat, menantang dan kompetitif)
       }
 
       // 2. PENYESUAIAN BERDASARKAN KOMPLEKSITAS SOAL
-      // Soal sulit membutuhkan waktu hitung sedikit lebih lama, mencerminkan lawan sungguhan
       if (currentQuestion.isHardChallenge) {
-        baseDelay += 1400;
+        baseDelay += 800;
       } else if (currentQuestion.difficulty === "hard") {
-        baseDelay += 900;
+        baseDelay += 500;
       } else if (currentQuestion.difficulty === "medium") {
-        baseDelay += 400;
+        baseDelay += 200;
       }
 
       if (category === "algebra" || category === "roots" || category === "physics") {
-        baseDelay += 500;
+        baseDelay += 300;
       } else if (category === "counting") {
-        baseDelay -= 300;
+        baseDelay -= 200;
       }
 
       // 3. MEKANIK KESEIMBANGAN & ANTI-FRUSTRASI (Dynamic Momentum)
-      // Jika HP Pemain sedang rendah (<= 35 HP), bot memberi kelonggaran waktu agar pemain
-      // tidak langsung ter-K.O. dan punya kesempatan comeback / heal (+15 HP saat combo 3x).
       const currentP1 = p1Ref.current;
       const currentP2 = p2Ref.current;
 
       if (currentP1.health <= 35) {
-        baseDelay += 1000;
+        // Pemain sekarat: beri waktu ekstra bagi pemain untuk bernapas & bertahan
+        baseDelay += 700;
       } else if (currentP1.combo >= 3 || (currentP1.score - currentP2.score) >= 12) {
-        // Jika pemain sedang memimpin jauh, bot lebih fokus dan sedikit lebih gesit
-        baseDelay -= 350;
+        // Jika pemain memimpin jauh, bot lebih fokus
+        baseDelay -= 250;
       }
 
       // 4. HUMAN JITTER (Variasi acak agar ritme tidak seperti mesin)
-      const jitter = (Math.random() - 0.5) * 600;
+      const jitter = (Math.random() - 0.5) * 400;
       const minDelay =
-        aiDifficulty === "hard" ? 3200 : aiDifficulty === "normal" ? 4000 : 5200;
+        aiDifficulty === "hard" ? 2000 : aiDifficulty === "normal" ? 2800 : 3800;
       const finalDelay = Math.max(minDelay, Math.round(baseDelay + jitter));
 
       // 5. KALKULASI AKURASI BOT (Fair & Tidak Curang)
-      // Tidak dibuat terlalu tinggi agar pemain tidak merasa frustasi dicurangi bot.
-      let accuracy = 0.68; // Normal default 68%
+      let accuracy = 0.72; // Normal default 72%
       if (aiDifficulty === "easy") {
-        accuracy = 0.52; // ~52% (sering ragu atau salah hitung)
+        accuracy = 0.55; // ~55% (sering ragu atau salah)
       } else if (aiDifficulty === "normal") {
-        accuracy = 0.68; // ~68% (seimbang, ada celah ~32% kesalahan untuk dimanfaatkan)
+        accuracy = 0.72; // ~72% (seimbang, ada celah ~28% kesalahan untuk dimanfaatkan)
       } else {
-        accuracy = 0.80; // ~80% (sulit dan tangguh, bukan 95% yang mustahil dikalahkan)
+        accuracy = 0.84; // ~84% (tangguh tapi tetap ada celah manusiawi)
       }
 
       // Jika soal sulit, akurasi bot berkurang sedikit
       if (currentQuestion.isHardChallenge || currentQuestion.difficulty === "hard") {
-        accuracy = Math.max(0.40, accuracy - 0.08);
+        accuracy = Math.max(0.42, accuracy - 0.08);
       }
 
-      // Jika HP pemain sekarat, bot memberi keringanan akurasi
+      // Jika HP pemain sekarat, bot memberi sedikit keringanan akurasi
       if (currentP1.health <= 35) {
-        accuracy = Math.max(0.45, accuracy - 0.10);
+        accuracy = Math.max(0.48, accuracy - 0.10);
       }
 
       aiIntervalRef.current = setTimeout(() => {
@@ -916,7 +952,8 @@ export default function App() {
             currentAction: randomPunch,
           }));
 
-          const baseAiDmg = activeDuration <= 60 ? 8 : activeDuration <= 300 ? 6 : 5;
+          const curDuration = activeDurationRef.current;
+          const baseAiDmg = curDuration <= 60 ? 8 : curDuration <= 300 ? 6 : 5;
           const comboBonusDmg = nextBotCombo >= 4 ? 2 : 0;
           const totalAiDmg = baseAiDmg + comboBonusDmg;
 
@@ -956,15 +993,13 @@ export default function App() {
             setP2((p) => ({ ...p, currentAction: "idle" }));
           }, 400);
 
-          // Pindah ke soal berikutnya
-          nextQuestion();
+          // Pindah ke soal berikutnya secara aman via ref
+          nextQuestionRef.current();
         } else {
           // --- BOT SALAH HITUNG / RAGU (MISS / BLOCK) ---
-          // Efek suara hembusan angin pukulan meleset
           audio.playWhoosh();
 
           // Bot masuk ke posisi bertahan (block), combo bot ter-reset ke 0
-          // Soal tetap terbuka untuk dijawab oleh pemain (tidak dicuri oleh bot)
           setP2((prev) => ({
             ...prev,
             combo: 0,
@@ -982,9 +1017,8 @@ export default function App() {
           }, 500);
 
           // Jeda sebelum bot mencoba berpikir ulang untuk soal yang sama
-          // Memberi kesempatan emas bagi pemain untuk mendahului bot
           const retryDelay =
-            aiDifficulty === "hard" ? 3000 : aiDifficulty === "normal" ? 3800 : 4600;
+            aiDifficulty === "hard" ? 2200 : aiDifficulty === "normal" ? 2700 : 3400;
           aiIntervalRef.current = setTimeout(() => {
             if (isSubscribed) {
               scheduleNextAiAction();
@@ -1004,11 +1038,9 @@ export default function App() {
     stage,
     p2.isAi,
     aiDifficulty,
-    activeDuration,
-    currentQuestion,
-    nextQuestion,
-    triggerScreenShake,
+    currentQuestion?.id,
     category,
+    triggerScreenShake,
   ]);
 
   // Submit Answer
@@ -1276,7 +1308,13 @@ export default function App() {
     const isMultiplayer = mode === "quick_match" || mode === "private_room";
 
     if (!isMultiplayer) {
-      startMatch();
+      startMatch({
+        duration: activeDuration,
+        educationLevel: activeEducationLevel,
+        category,
+        isBot: true,
+        opponentName: `Bot AI (${aiDifficulty.toUpperCase()})`,
+      });
       return;
     }
 
@@ -1354,8 +1392,16 @@ export default function App() {
     setStage("main_menu");
   };
 
+  const isEffectiveFs = isFullscreen || isSimulatedFullscreen;
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col justify-between select-none relative overflow-x-hidden">
+    <div
+      className={`min-h-screen bg-slate-950 text-slate-100 font-sans flex flex-col justify-between select-none relative overflow-x-hidden ${
+        isEffectiveFs
+          ? "fixed inset-0 z-40 w-full h-[100dvh] max-h-[100dvh] overflow-y-auto"
+          : ""
+      }`}
+    >
       {stage === "main_menu" && (
         <MainMenu
           onStartGame={handleStartGame}
@@ -1370,7 +1416,7 @@ export default function App() {
           lifetimeScore={lifetimeScore}
           selectedSkinId={selectedSkinId}
           onSelectSkin={handleSelectSkin}
-          isFullscreen={isFullscreen}
+          isFullscreen={isEffectiveFs}
           onToggleFullscreen={toggleFullscreen}
           onAddLifetimePoints={(pts) => {
             setLifetimeScore((prev) => {
@@ -1579,6 +1625,27 @@ export default function App() {
             handleExitMatch();
           }}
         />
+      )}
+
+      {showIosFullscreenHint && (
+        <div className="fixed bottom-4 left-4 right-4 max-w-sm mx-auto z-[9999] bg-slate-900/95 border border-amber-500/50 shadow-2xl rounded-2xl p-3 flex items-start gap-2.5 text-xs text-slate-200">
+          <div className="p-1.5 bg-amber-500/20 text-amber-400 rounded-lg shrink-0">
+            <Sparkles className="w-4 h-4" />
+          </div>
+          <div className="flex-1">
+            <p className="font-bold text-amber-400 mb-0.5">Layar Penuh iPhone Aktif!</p>
+            <p className="text-[11px] text-slate-300 leading-snug">
+              Agar bilah Safari tersembunyi 100%, ketuk tombol <strong className="text-amber-300">Bagikan (Share)</strong> lalu pilih <strong className="text-amber-300">&quot;Tambahkan ke Layar Utama&quot;</strong>.
+            </p>
+          </div>
+          <button
+            onClick={() => setShowIosFullscreenHint(false)}
+            className="text-slate-400 hover:text-slate-200 p-1 text-sm font-bold"
+            aria-label="Tutup"
+          >
+            ✕
+          </button>
+        </div>
       )}
     </div>
   );
