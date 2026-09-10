@@ -19,6 +19,15 @@ export const BOXER_SKINS: BoxerSkin[] = [
     description: 'Baju & Sarung Merah Starter',
   },
   {
+    id: 'flame_kunoichi',
+    name: 'Flame Kunoichi',
+    trunksColor: '#dc2626',
+    glovesColor: '#ea580c',
+    minLifetimeScore: 0,
+    icon: '🪭',
+    description: 'Petinju Ninja Kunoichi Berapi (Homage Mai Shiranui)',
+  },
+  {
     id: 'emerald_brawler',
     name: 'Emerald Brawler',
     trunksColor: '#10b981',

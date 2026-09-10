@@ -261,8 +261,22 @@ app.post("/api/leaderboard", async (req, res) => {
       highest_combo: nextCombo,
       updated_at: new Date().toISOString(),
     };
+    let finalLbUserId: string | null = null;
     if (validUid) {
-      payload.user_id = validUid;
+      try {
+        const { data: prof } = await supabaseServer
+          .from("profiles")
+          .select("id")
+          .eq("id", validUid)
+          .maybeSingle();
+        if (prof?.id) {
+          finalLbUserId = prof.id;
+        }
+      } catch {}
+    }
+
+    if (finalLbUserId) {
+      payload.user_id = finalLbUserId;
     }
 
     let saveResult: any = null;
@@ -282,11 +296,37 @@ app.post("/api/leaderboard", async (req, res) => {
         .maybeSingle();
     }
 
+    // If foreign key constraint failed on user_id, retry without user_id
+    if (
+      saveResult?.error &&
+      payload.user_id &&
+      (saveResult.error.code === "23503" ||
+        saveResult.error.message?.toLowerCase().includes("foreign key") ||
+        saveResult.error.message?.includes("leaderboard_user_id_fkey"))
+    ) {
+      console.warn("Leaderboard foreign key failed, retrying without user_id:", saveResult.error.message);
+      delete payload.user_id;
+      if (existing && existing.id) {
+        saveResult = await supabaseServer
+          .from("leaderboard")
+          .update(payload)
+          .eq("id", existing.id)
+          .select()
+          .maybeSingle();
+      } else {
+        saveResult = await supabaseServer
+          .from("leaderboard")
+          .upsert(payload, { onConflict: "player_name" })
+          .select()
+          .maybeSingle();
+      }
+    }
+
     if (saveResult?.error) {
       console.warn("Leaderboard save warning:", saveResult.error.message);
     }
 
-    // 2. Also update profiles table if user_id is provided
+    // 2. Also update profiles table if user_id is a verified profile
     // Schema public.profiles:
     // - id: uuid (primary key, foreign key auth.users.id)
     // - username: text
@@ -295,12 +335,12 @@ app.post("/api/leaderboard", async (req, res) => {
     // - wins: integer
     // - matches_played: integer
     // - updated_at: timestamp with time zone
-    if (validUid) {
+    if (finalLbUserId) {
       try {
         const { data: prof } = await supabaseServer
           .from("profiles")
           .select("*")
-          .eq("id", validUid)
+          .eq("id", finalLbUserId)
           .maybeSingle();
 
         const profScore = Math.max(
@@ -312,7 +352,7 @@ app.post("/api/leaderboard", async (req, res) => {
 
         await supabaseServer.from("profiles").upsert(
           {
-            id: validUid,
+            id: finalLbUserId,
             username: cleanName,
             total_score: profScore,
             wins: profWins,
@@ -387,20 +427,55 @@ app.post("/api/match-history", async (req, res) => {
       created_at: new Date().toISOString(),
     };
     if (cleanRoomId) payload.room_id = cleanRoomId;
-    if (validUid) payload.user_id = validUid;
 
-    const { data, error } = await supabaseServer
+    // Verify whether validUid actually exists in public.profiles before referencing it
+    if (validUid) {
+      try {
+        const { data: prof } = await supabaseServer
+          .from("profiles")
+          .select("id")
+          .eq("id", validUid)
+          .maybeSingle();
+        if (prof?.id) {
+          payload.user_id = prof.id;
+        }
+      } catch {
+        // If checking profiles errors or table is empty, do not set payload.user_id eagerly
+      }
+    }
+
+    let insertResult = await supabaseServer
       .from("match_history")
       .insert(payload)
       .select()
       .maybeSingle();
 
-    if (error) {
-      console.warn("Supabase match_history insert error:", error.message);
-      return res.status(400).json({ success: false, error: error.message });
+    // If foreign key constraint violated (guest UUID or orphaned user_id), retry without user_id
+    if (
+      insertResult.error &&
+      payload.user_id &&
+      (insertResult.error.code === "23503" ||
+        insertResult.error.message?.toLowerCase().includes("foreign key") ||
+        insertResult.error.message?.includes("match_history_user_id_fkey"))
+    ) {
+      console.warn(
+        "Foreign key constraint hit on match_history user_id, gracefully retrying without user_id:",
+        insertResult.error.message
+      );
+      delete payload.user_id;
+      insertResult = await supabaseServer
+        .from("match_history")
+        .insert(payload)
+        .select()
+        .maybeSingle();
     }
 
-    return res.json({ success: true, data: data || payload });
+    if (insertResult.error) {
+      console.warn("Supabase match_history insert error:", insertResult.error.message);
+      return res.status(400).json({ success: false, error: insertResult.error.message });
+    }
+
+    return res.json({ success: true, data: insertResult.data || payload });
   } catch (err: any) {
     console.error("Match history insert exception:", err);
     return res.status(500).json({ success: false, error: err.message });
@@ -535,16 +610,31 @@ app.post("/api/rooms", async (req, res) => {
     if (isValidUuid(guest_id)) payload.guest_id = guest_id.trim();
     if (isValidUuid(winner_id)) payload.winner_id = winner_id.trim();
 
-    const { data, error } = await supabaseServer
+    let roomResult = await supabaseServer
       .from("rooms")
       .upsert(payload, { onConflict: "room_code" })
       .select()
       .maybeSingle();
 
-    if (error) {
-      console.warn("Rooms upsert warning:", error.message);
+    if (
+      roomResult.error &&
+      (roomResult.error.code === "23503" ||
+        roomResult.error.message?.toLowerCase().includes("foreign key"))
+    ) {
+      delete payload.host_id;
+      delete payload.guest_id;
+      delete payload.winner_id;
+      roomResult = await supabaseServer
+        .from("rooms")
+        .upsert(payload, { onConflict: "room_code" })
+        .select()
+        .maybeSingle();
     }
-    return res.json({ success: true, data });
+
+    if (roomResult.error) {
+      console.warn("Rooms upsert warning:", roomResult.error.message);
+    }
+    return res.json({ success: true, data: roomResult.data || payload });
   } catch (err: any) {
     return res.json({ success: false, error: err.message });
   }

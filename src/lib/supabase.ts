@@ -895,7 +895,9 @@ export const saveMatchScoreToLeaderboard = async ({
 }) => {
   const name = playerName.trim() || "Pemain Kamu";
   const badge = calculateBadge(newLifetimeScore);
-  const validUid = isValidUuid(userId) ? userId?.trim() : getPersistentGuestUuid();
+  // Valid user_id must ONLY be a real authenticated user's UUID.
+  // Foreign keys in Postgres require the user to exist in profiles/auth.users; guests must have null/undefined.
+  const validUid = userId && isValidUuid(userId) ? userId.trim() : null;
 
   // 1. Simpan ke Backend Server API (/api/leaderboard & /api/match-history)
   try {
@@ -912,43 +914,47 @@ export const saveMatchScoreToLeaderboard = async ({
     const headers: Record<string, string> = { "Content-Type": "application/json" };
     if (authHeader) headers["Authorization"] = authHeader;
 
+    const lbBody: any = {
+      player_name: name,
+      total_score: newLifetimeScore,
+      score_increment: scoreEarned,
+      wins: matchResult === "win" ? 1 : 0,
+      matches_played: 1,
+      highest_combo: highestCombo,
+      avatar: avatar || "🥊",
+      avatar_url: avatar || "",
+    };
+    if (validUid) lbBody.user_id = validUid;
+
     const lbPromise = fetch("/api/leaderboard", {
       method: "POST",
       headers,
-      body: JSON.stringify({
-        user_id: validUid,
-        player_name: name,
-        total_score: newLifetimeScore,
-        score_increment: scoreEarned,
-        wins: matchResult === "win" ? 1 : 0,
-        matches_played: 1,
-        highest_combo: highestCombo,
-        avatar: avatar || "🥊",
-        avatar_url: avatar || "",
-      }),
+      body: JSON.stringify(lbBody),
     }).catch((e) => console.warn("API /api/leaderboard post notice:", e));
 
     let mhPromise: Promise<any> | null = null;
     if (opponentName) {
+      const mhBody: any = {
+        room_id: roomId || `match_${Date.now()}`,
+        player_name: name,
+        opponent_name: opponentName,
+        player_score: scoreEarned,
+        opponent_score: opponentScore,
+        result: matchResult,
+        accuracy,
+        category,
+        mode,
+        highest_combo: highestCombo,
+        total_answered: totalAnswered,
+        correct_count: correctCount,
+        wrong_count: wrongCount,
+      };
+      if (validUid) mhBody.user_id = validUid;
+
       mhPromise = fetch("/api/match-history", {
         method: "POST",
         headers,
-        body: JSON.stringify({
-          room_id: roomId || `match_${Date.now()}`,
-          user_id: validUid,
-          player_name: name,
-          opponent_name: opponentName,
-          player_score: scoreEarned,
-          opponent_score: opponentScore,
-          result: matchResult,
-          accuracy,
-          category,
-          mode,
-          highest_combo: highestCombo,
-          total_answered: totalAnswered,
-          correct_count: correctCount,
-          wrong_count: wrongCount,
-        }),
+        body: JSON.stringify(mhBody),
       }).catch((e) => console.warn("API /api/match-history post notice:", e));
     }
 
@@ -980,8 +986,20 @@ export const saveMatchScoreToLeaderboard = async ({
       supabase
         .from("match_history")
         .insert(mhPayload)
-        .then(({ error }) => {
-          if (error) console.warn("Client-side match_history write error:", error.message);
+        .then(async ({ error }) => {
+          if (error) {
+            if (
+              mhPayload.user_id &&
+              (error.code === "23503" ||
+                error.message?.toLowerCase().includes("foreign key") ||
+                error.message?.includes("match_history_user_id_fkey"))
+            ) {
+              delete mhPayload.user_id;
+              await supabase.from("match_history").insert(mhPayload);
+            } else {
+              console.warn("Client-side match_history write error:", error.message);
+            }
+          }
         });
 
       // Direct write/update to leaderboard (columns: player_name, total_score, wins, matches_played, highest_combo, updated_at, user_id)
@@ -1022,10 +1040,21 @@ export const saveMatchScoreToLeaderboard = async ({
       };
       if (validUid) lbPayload.user_id = validUid;
 
-      if (existingLb && existingLb.id) {
-        await supabase.from("leaderboard").update(lbPayload).eq("id", existingLb.id);
-      } else {
-        await supabase.from("leaderboard").upsert(lbPayload, { onConflict: "player_name" });
+      let lbRes = existingLb && existingLb.id
+        ? await supabase.from("leaderboard").update(lbPayload).eq("id", existingLb.id)
+        : await supabase.from("leaderboard").upsert(lbPayload, { onConflict: "player_name" });
+
+      if (
+        lbRes?.error &&
+        lbPayload.user_id &&
+        (lbRes.error.code === "23503" || lbRes.error.message?.toLowerCase().includes("foreign key"))
+      ) {
+        delete lbPayload.user_id;
+        if (existingLb && existingLb.id) {
+          await supabase.from("leaderboard").update(lbPayload).eq("id", existingLb.id);
+        } else {
+          await supabase.from("leaderboard").upsert(lbPayload, { onConflict: "player_name" });
+        }
       }
 
       // If user is logged in with valid UUID, also update profiles (columns: id, username, avatar_url, total_score, wins, matches_played, updated_at)
@@ -1065,7 +1094,11 @@ export const saveMatchScoreToLeaderboard = async ({
           if (matchResult === "win" && validUid) {
             roomPayload.winner_id = validUid;
           }
-          await supabase.from("rooms").upsert(roomPayload, { onConflict: "room_code" });
+          const { error: rErr } = await supabase.from("rooms").upsert(roomPayload, { onConflict: "room_code" });
+          if (rErr && (rErr.code === "23503" || rErr.message?.toLowerCase().includes("foreign key"))) {
+            delete roomPayload.winner_id;
+            await supabase.from("rooms").upsert(roomPayload, { onConflict: "room_code" });
+          }
         } catch (rErr) {
           console.warn("Direct rooms completion update notice:", rErr);
         }

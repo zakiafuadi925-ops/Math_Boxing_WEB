@@ -227,6 +227,14 @@ export default function App() {
   const handleSelectSkin = (skinId: string) => {
     setSelectedSkinId(skinId);
     localStorage.setItem("mb_selected_skin", skinId);
+    const activeSkin =
+      BOXER_SKINS.find((s) => s.id === skinId) || BOXER_SKINS[0];
+    setP1((prev) => ({
+      ...prev,
+      avatarColor: activeSkin.trunksColor,
+      glovesColor: activeSkin.glovesColor,
+      skinId: activeSkin.id,
+    }));
   };
 
   // Subscribe to Supabase Auth state & fetch remote profile
@@ -484,6 +492,7 @@ export default function App() {
         health: 100,
         avatarColor: activeSkin.trunksColor,
         glovesColor: activeSkin.glovesColor,
+        skinId: activeSkin.id,
         combo: 0,
         currentAction: "idle",
       }));
@@ -859,31 +868,31 @@ export default function App() {
     const scheduleNextAiAction = () => {
       // 1. BASE REACTION / THINKING TIME (Milidetik)
       // Memberi tempo manusiawi yang adil dan santai agar pemain memiliki waktu membaca soal dan berhitung
-      let baseDelay = 5800; // 5.8 detik normal
+      let baseDelay = 7400; // 7.4 detik normal (tempo nyaman membaca dan berhitung)
       if (aiDifficulty === "easy") {
-        baseDelay = 8000; // 8.0 detik (sangat santai, ramah pemula & anak-anak)
+        baseDelay = 9600; // 9.6 detik (sangat santai, ramah pemula & anak-anak)
       } else if (aiDifficulty === "normal") {
-        baseDelay = 5800; // 5.8 detik (tempo berhitung manusia yang seimbang)
+        baseDelay = 7400; // 7.4 detik (tempo manusia yang tenang & seimbang)
       } else {
-        baseDelay = 4200; // 4.2 detik (menantang & kompetitif, namun tetap adil)
+        baseDelay = 5600; // 5.6 detik (kompetitif, tapi tidak terburu-buru)
       }
 
       // 2. PENYESUAIAN BERDASARKAN KOMPLEKSITAS SOAL
       // Soal rumit membutuhkan waktu membaca & berhitung lebih lama
       if (currentQuestion.isHardChallenge) {
-        baseDelay += 1800;
+        baseDelay += 2400;
       } else if (currentQuestion.difficulty === "hard") {
-        baseDelay += 1200;
+        baseDelay += 1800;
       } else if (currentQuestion.difficulty === "medium") {
-        baseDelay += 600;
+        baseDelay += 900;
       }
 
       if (category === "algebra" || category === "roots" || category === "physics") {
-        baseDelay += 1000;
+        baseDelay += 1400;
       } else if (category === "geometry") {
-        baseDelay += 600;
+        baseDelay += 800;
       } else if (category === "counting") {
-        baseDelay -= 300;
+        baseDelay += 200;
       }
 
       // 3. MEKANIK KESEIMBANGAN & ANTI-FRUSTRASI (Dynamic Momentum)
@@ -891,17 +900,17 @@ export default function App() {
       const currentP2 = p2Ref.current;
 
       if (currentP1.health <= 35) {
-        // Pemain sekarat: beri waktu ekstra bagi pemain untuk bernapas & bertahan (+1.5 detik)
-        baseDelay += 1500;
+        // Pemain sekarat: beri waktu ekstra bagi pemain untuk bernapas & bertahan (+2.0 detik)
+        baseDelay += 2000;
       } else if (currentP1.combo >= 3 || (currentP1.score - currentP2.score) >= 12) {
         // Jika pemain memimpin jauh, bot sedikit lebih fokus
         baseDelay -= 400;
       }
 
       // 4. HUMAN JITTER (Variasi acak agar ritme tidak seperti mesin)
-      const jitter = (Math.random() - 0.5) * 800;
+      const jitter = (Math.random() - 0.5) * 1000;
       const minDelay =
-        aiDifficulty === "hard" ? 3400 : aiDifficulty === "normal" ? 4800 : 6600;
+        aiDifficulty === "hard" ? 4800 : aiDifficulty === "normal" ? 6200 : 8000;
       const finalDelay = Math.max(minDelay, Math.round(baseDelay + jitter));
 
       // 5. KALKULASI AKURASI BOT (Fair & Tidak Curang)

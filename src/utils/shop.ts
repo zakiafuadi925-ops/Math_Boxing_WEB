@@ -17,6 +17,17 @@ export interface ShopItem {
 
 export const SHOP_SKINS: ShopItem[] = [
   {
+    id: 'flame_kunoichi',
+    name: 'Flame Kunoichi (Mai)',
+    category: 'skin',
+    diamondPrice: 300,
+    idrPrice: 10000,
+    icon: '🪭',
+    badge: 'HOMAGE',
+    description: 'Petinju ninja kunoichi berapi dengan kuncir kuda dan sarung tinju berapi.',
+    colors: { trunks: '#dc2626', gloves: '#ea580c' },
+  },
+  {
     id: 'skin_gold_dragon',
     name: 'Golden Dragon Legend',
     category: 'skin',

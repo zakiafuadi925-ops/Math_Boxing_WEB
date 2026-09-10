@@ -58,6 +58,7 @@ export interface PlayerState {
   glovesColor: string;
   combo: number;
   currentAction: ActionType;
+  skinId?: string;
 }
 
 export interface AnswerHistoryPoint {
