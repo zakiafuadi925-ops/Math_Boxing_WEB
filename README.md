@@ -16,6 +16,7 @@
 ## 🚀 About The Project
 
 **Math Boxing WEB** is a full-stack gamified web application built to test mathematical reflexes and logical computation under pressure. It combines fast-paced calculation rounds with multiplayer match rooms, secure user profiles, and global leaderboards backed by Supabase.
+link this project -> https://math-boxing-web.vercel.app/
 
 ---
 
