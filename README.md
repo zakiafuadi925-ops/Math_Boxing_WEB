@@ -66,7 +66,7 @@ git clone https://github.com/zakiafuadi925-ops/Math_Boxing_WEB.git
 cd Math_Boxing_WEB
 ```
 
-### 2. Install Dependencies
+### Install Dependencies
 
 Install all required frontend and backend packages using `npm`:
 
